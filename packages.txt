@@ -8,3 +8,6 @@ xclip xsel xdg-utils xorg-xwininfo xorg-xprop xorg-xrandr xorg-xdpyinfo wmctrl
 libnotify zenity fuzzel kitty zathura zathura-pdf-mupdf translate-shell github-cli pacman-contrib
 # fonts: zash's cell font (MonaspiceNe, with the prompt's icons), and every script and emoji (CJK, Arabic, Hebrew …)
 otf-monaspace-nerd ttf-jetbrains-mono-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji
+# Qt: QT_QPA_PLATFORMTHEME=kde (hypr env) needs plasma-integration, else Qt has no icon theme
+# beyond hicolor and every standard icon is blank (start menu, dolphin, Quickshell)
+plasma-integration breeze-icons
