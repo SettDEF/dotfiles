@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# wine-affinity — run the Affinity (v3 unified) Wine env on /mnt/storage.
-# The prefix lives at ~/.AffinityLinux (symlink -> /mnt/storage/usr/mooon/wine/AffinityLinux),
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
+# wine-affinity — run the Affinity (v3 unified) Wine env on ${STORAGE}.
+# The prefix lives at ~/.AffinityLinux (symlink -> ${WINE_DIR}/AffinityLinux),
 # isolated from ~/.wine (default) and ~/.wine-audio (yabridge).
 #
 #   wine-affinity run            launch Affinity (the normal way to start it)
@@ -29,7 +30,7 @@ case "${1:-}" in
     run)     launch "AffinityHook.exe" ;;     # normal start (plugin loader + WineFix)
     direct)  launch "Affinity.exe" ;;         # fallback if the hook misbehaves
     tricks)  shift; exec winetricks "$@" ;;
-    install) exec python3 /mnt/storage/usr/mooon/wine/AffinityLinuxInstaller.py ;;
+    install) exec python3 ${WINE_DIR}/AffinityLinuxInstaller.py ;;
     cfg)     exec "$([[ -x "$EW/winecfg" ]] && echo "$EW/winecfg" || command -v winecfg)" ;;
     prefix)  echo "$WINEPREFIX -> $(readlink "$WINEPREFIX" 2>/dev/null)" ;;
     "")      echo "usage: wine-affinity <run|direct|tricks|install|cfg|prefix> | <wine args>"; exit 1 ;;

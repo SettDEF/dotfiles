@@ -52,12 +52,9 @@
 # NOTE for parallel builds: a single shared CARGO_TARGET_DIR means two cargo processes can fight
 # over the same artifacts — running `cargo test` beside a live `tauri dev` corrupts the shared
 # rlib and produces link errors that look like code errors. Give a side build its own directory:
-#     CARGO_TARGET_DIR=/mnt/storage/dev-cache/targets/side cargo test
-# Only where that mount exists: on another machine it is not there, and every cargo build failed
-if [ -d /mnt/storage/dev-cache ] && [ -w /mnt/storage/dev-cache ]; then
-    export CARGO_TARGET_DIR="/mnt/storage/dev-cache/targets"
-    export npm_config_cache="/mnt/storage/dev-cache/npm-cache"
-fi
+#     CARGO_TARGET_DIR=$DEV_CACHE/targets/side cargo test
+# this machine's folders (STORAGE, PROJECTS_DIR, DEV_CACHE, VIDEOS_DIR …, CARGO_TARGET_DIR on a data disk)
+[ -f "$HOME/.config/paths.env" ] && . "$HOME/.config/paths.env"
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────────

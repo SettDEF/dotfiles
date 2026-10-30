@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # Move a Steam game between libraries by hand, when Steam's own mover will not.
 #
 #   steam-move-game <appid> <source-library> <dest-library>
-#   steam-move-game 3354750 /mnt/nuke9100/Games/steamapps /mnt/storage/SteamLibrary
+#   steam-move-game 3354750 /mnt/nuke9100/Games/steamapps ${STORAGE}/SteamLibrary
 #   steam-move-game --dry-run 3354750 <src> <dst>
 #
 # A library is the folder CONTAINING steamapps/. Steam's own config may record

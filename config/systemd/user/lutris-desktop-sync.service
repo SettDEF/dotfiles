@@ -1,6 +1,0 @@
-[Unit]
-Description=Sync Lutris games to .desktop launchers
-
-[Service]
-Type=oneshot
-ExecStart=%h/.scripts/desktop-sync --prune

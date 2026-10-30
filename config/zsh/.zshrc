@@ -117,7 +117,7 @@ add-zsh-hook precmd __zsh_colors_refresh
 # project. When cwd is inside one, the prompt shows a project pill + a path
 # relative to the project instead of the full path.
 typeset -ga PROMPT_PROJECT_ROOTS=(
-    "/mnt/storage/dev/projects"
+    "${PROJECTS_DIR:-$HOME/dev/projects}"
     "$HOME/workspace"
 )
 
@@ -1078,8 +1078,15 @@ remetamp3() {
 
 if __has nvim; then
     nvim-switch() {
-        nvim_current="$(basename $(readlink ~/.config/nvim))"
-        rm ~/.config/nvim
+        # only between the two configs, with ~/.config/nvim a link to one of them (never a real folder)
+        if [[ ! -d ~/.config/despair.nvim || ! -d ~/.config/monolith.nvim ]]; then
+            echo "nvim-switch: needs ~/.config/despair.nvim and ~/.config/monolith.nvim"; return 1
+        fi
+        if [[ -e ~/.config/nvim && ! -L ~/.config/nvim ]]; then
+            echo "nvim-switch: ~/.config/nvim is a real folder, not a link; move it first"; return 1
+        fi
+        nvim_current="$(basename "$(readlink ~/.config/nvim)")"
+        rm -f ~/.config/nvim
         if [[ "$nvim_current" == "monolith.nvim" ]]; then
             echo "Current configuration is $nvim_current"
             ln -sf ~/.config/despair.nvim ~/.config/nvim

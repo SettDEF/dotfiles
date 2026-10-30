@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
+# build-release: one of your apps from its public repo, built in a sandbox (own home, no desktop, no bus)
+# for x86-64-v3 (Haswell and newer), packed as APP-VERSION-x86_64.tar.zst of what it installs under ~
+#   build-release APP [VERSION=1.0.0] [OUTDIR=.]
+set -euo pipefail
+app=$1 ver=${2:-1.0.0} out=$(realpath "${3:-.}")
+work=${DEV_CACHE}/release/$app
+rm -rf "$work"; mkdir -p "$work/home" "$out"
+git clone -q --depth 1 "https://github.com/SettDEF/$app.git" "$work/src"
+src=$work/src
+if   [ -f "$src/install.sh" ]; then at=$src
+elif [ -f "$src/${app}/install.sh" ]; then at=$src/$app
+else at=""; fi
+real=$HOME
+# the build itself, inside: HOME is the empty staging home; cargo's caches and the toolchain are the real ones
+inner='set -e; cd "$AT"; mkdir -p "$HOME/.local/bin"
+if [ -n "$AT_SET" ]; then bash ./install.sh </dev/null
+else cargo build --release -q; find target/release -maxdepth 1 -type f -executable -exec cp {} "$HOME/.local/bin/" \; ; fi'
+bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp \
+  --unshare-pid --unshare-ipc --die-with-parent --new-session \
+  --tmpfs /run/user/"$(id -u)" --tmpfs /run/dbus \
+  --bind "$work/home" "$real" \
+  --bind "$real/.cargo" "$real/.cargo" \
+  --bind ${DEV_CACHE} ${DEV_CACHE} \
+  --bind "$work" "$work" \
+  --setenv HOME "$real" --setenv CARGO_HOME "$real/.cargo" --setenv RUSTUP_HOME ${DEV_CACHE}/rustup \
+  --ro-bind "$(dirname "$(readlink -f "$0")")/shim" /tmp/shim --setenv PATH "/tmp/shim:$PATH" \
+  --unsetenv CARGO_TARGET_DIR --setenv RUSTFLAGS "-C target-cpu=x86-64-v3" \
+  --setenv AT "${at:-$src}" --setenv AT_SET "$at" \
+  --setenv XDG_RUNTIME_DIR /run/user/"$(id -u)" --setenv DBUS_SESSION_BUS_ADDRESS unix:path=/nonexistent \
+  --setenv DBUS_SYSTEM_BUS_ADDRESS unix:path=/nonexistent \
+  --unsetenv WAYLAND_DISPLAY --unsetenv DISPLAY --unsetenv HYPRLAND_INSTANCE_SIGNATURE --unsetenv ZEIT --unsetenv ZEIT_PANE \
+  bash -c "$inner"
+# what it installed, as paths under ~ (no caches)
+cd "$work/home"; rm -rf .cache .cargo
+[ -n "$(find . -type f | head -1)" ] || { echo "$app: nothing was installed" >&2; exit 1; }
+tar --zstd -cf "$out/$app-$ver-x86_64.tar.zst" .
+echo "$out/$app-$ver-x86_64.tar.zst: $(find . -type f | wc -l) files, $(du -sh "$out/$app-$ver-x86_64.tar.zst" | cut -f1)"

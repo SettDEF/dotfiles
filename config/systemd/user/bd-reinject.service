@@ -1,6 +1,0 @@
-[Unit]
-Description=Re-inject BetterDiscord after a Discord update
-
-[Service]
-Type=oneshot
-ExecStart=%h/.config/quickshell/ii/scripts/discord/bd-reinject.sh

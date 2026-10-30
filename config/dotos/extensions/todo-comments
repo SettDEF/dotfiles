@@ -3,7 +3,7 @@
 # @about   Every TODO: / FIXME: comment in your projects becomes a task, linked to its file and line. Remove the comment and the task closes itself.
 # @kind    source
 # @every   30m
-# @option  ROOTS text "/mnt/storage/dev/projects" "Folders to scan (comma separated)"
+# @option  ROOTS text "~/dev/projects" "Folders to scan (comma separated)"
 # @option  WORDS text "TODO,FIXME,HACK,NOTE,BUG,XXX" "Comment markers"
 # @option  MAX int 300 "At most this many tasks"
 # @option  SKIP text "*.md,*.txt,*.json,*.lock" "File patterns to leave out (prose mentions TODO: too)"
@@ -13,7 +13,7 @@
 # TODO does not turn it into a "new" task.
 set -euo pipefail
 
-roots=${DOTOS_OPT_ROOTS:-/mnt/storage/dev/projects}
+roots=${DOTOS_OPT_ROOTS:-${PROJECTS_DIR:-$HOME/dev/projects}}
 words=${DOTOS_OPT_WORDS:-TODO,FIXME}
 max=${DOTOS_OPT_MAX:-300}
 skip=${DOTOS_OPT_SKIP:-*.md,*.txt,*.json,*.lock}

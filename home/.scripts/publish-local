@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 #
 # Build one of your own projects and publish it into the local pacman repo, so
 # `pacman -Syu` upgrades it like anything else on the system.
@@ -17,15 +18,15 @@
 # the old versions stay in the repo directory, so going back to yesterday's
 # build is one command rather than a rebuild.
 #
-# The repo lives on /mnt/storage deliberately — /home is the partition that
+# The repo lives on ${STORAGE} deliberately — /home is the partition that
 # keeps filling up, and a package repo is exactly the kind of thing that grows
 # quietly until it is the problem.
 #
 set -euo pipefail
 
-REPO_DIR=${LOCAL_REPO_DIR:-/mnt/storage/repo}
+REPO_DIR=${LOCAL_REPO_DIR:-${PKG_REPO_DIR}}
 REPO_NAME=${LOCAL_REPO_NAME:-wuchains}
-PROJECTS=${PROJECTS_DIR:-/mnt/storage/dev/projects}
+PROJECTS=${PROJECTS_DIR:-${PROJECTS_DIR}}
 
 snippet() {
     cat <<CONF

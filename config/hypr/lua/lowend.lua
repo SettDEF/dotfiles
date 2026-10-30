@@ -1,6 +1,7 @@
 -- lowend.lua: lighter rendering on weak machines (old Intel graphics, little memory), where blur,
 -- shadows and animations draw wrongly or slowly. Off on a strong machine.
 --   force:  ~/.config/hypr/lowend  containing "on" or "off"
+if not io then return end   -- loom: no io, and no weak-machine guess needed
 local function read(p) local f = io.open(p); if not f then return nil end; local s = f:read("*a"); f:close(); return s end
 
 local forced = (read(os.getenv("HOME") .. "/.config/hypr/lowend") or ""):match("%a+")
