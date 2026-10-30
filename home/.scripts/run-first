@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+for cmd in "$@"; do
+  [[ -z "${cmd//[[:space:]]/}" ]] && continue
+  bin="${cmd%% *}"
+  command -v "$bin" >/dev/null 2>&1 || continue
+  setsid bash -c "$cmd" </dev/null >/dev/null 2>&1 &
+  disown
+  exit 0
+done
+exit 127

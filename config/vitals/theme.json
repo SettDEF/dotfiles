@@ -1,0 +1,15 @@
+{
+  "cpu": "cyan",
+  "power": "magenta",
+  "battery": "green",
+  "gpu": "blue",
+  "memory": "lightgreen",
+  "net": "lightblue",
+  "findings": "yellow",
+  "proc": "lightcyan",
+  "menu": "lightyellow",
+  "dim": "darkgray",
+  "ok": "green",
+  "warn": "yellow",
+  "crit": "red"
+}

@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 3024"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#090300"
+grey2 = "#3a3432"
+grey3 = "#4a4543"
+grey4 = "#5c5855"
+grey5 = "#807d7c"
+grey6 = "#a5a2a2"
+grey7 = "#d6d5d4"
+grey8 = "#f7f7f7"
+red1 = "#db2d20"
+red2 = "#e8bbd0"
+yellow1 = "#fded02"
+green1 = "#01a252"
+cyan1 = "#b5e4f4"
+blue1 = "#01a0e4"
+purple1 = "#a16a94"
+yellow2 = "#cdab53"
+
+[roles]
+background = "#090300"
+foreground = "#f7f7f7"
+primary = "#db2d20"

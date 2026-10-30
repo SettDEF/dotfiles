@@ -1,0 +1,11 @@
+{
+  "disabledExtensions": [
+    "github"
+  ],
+  "queries": [
+    {
+      "expr": "priority=high",
+      "name": "urgent"
+    }
+  ]
+}

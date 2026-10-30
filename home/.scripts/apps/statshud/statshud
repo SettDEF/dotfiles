@@ -1,0 +1,90 @@
+#!/bin/sh
+# statshud — control the on-screen stats overlay (FPS / net / CPU / GPU).
+#
+# The overlay itself lives in quickshell; this is the CLI handle for it, so it
+# can be driven from keybinds, game launch options, or another script without
+# opening a panel. Settings are written straight into the shell's config file,
+# which quickshell watches — so a change applies immediately with no restart.
+#
+# Usage:
+#   statshud                     toggle
+#   statshud on | off
+#   statshud edit                drag the overlay into place (magnetic)
+#   statshud layout bar|stack|compact|detailed
+#   statshud pos top-left|top-right|bottom-left|bottom-right
+#   statshud opacity 0.0-1.0
+#   statshud iface wlan0|eth0|auto
+#   statshud status
+#
+# Example — show a compact FPS counter only while a game runs:
+#   statshud layout compact && statshud on && %command% ; statshud off
+
+CONF="$HOME/.config/illogical-impulse/config.json"
+QS="qs -c ii"
+
+ipc() { $QS ipc call statsHud "$1" >/dev/null 2>&1; }
+
+# jq is not a hard dependency of this config, so fall back to a small awk
+# rewrite rather than failing outright on a machine that lacks it.
+set_opt() {
+    key="$1"; val="$2"; quoted="$3"
+    if command -v jq >/dev/null 2>&1; then
+        if [ "$quoted" = "str" ]; then
+            jq --arg v "$val" ".statsHud.$key = \$v" "$CONF" > "$CONF.tmp"
+        else
+            jq --argjson v "$val" ".statsHud.$key = \$v" "$CONF" > "$CONF.tmp"
+        fi
+        mv "$CONF.tmp" "$CONF"
+    else
+        echo "statshud: jq not found — install it or edit $CONF by hand" >&2
+        return 1
+    fi
+}
+
+case "${1:-toggle}" in
+    toggle|"")  ipc toggle ;;
+    on|open)    ipc open ;;
+    edit)       ipc edit ;;   # drag-to-place with edge/centre snapping
+    off|close)  ipc close ;;
+
+    layout)
+        case "$2" in
+            bar|stack|compact|detailed) set_opt layout "$2" str && echo "layout: $2" ;;
+            *) echo "layout: bar | stack | compact | detailed" >&2; exit 1 ;;
+        esac ;;
+
+    pos|position)
+        case "$2" in
+            top-left|top-right|bottom-left|bottom-right)
+                set_opt position "$2" str && echo "position: $2" ;;
+            *) echo "pos: top-left | top-right | bottom-left | bottom-right" >&2; exit 1 ;;
+        esac ;;
+
+    opacity)
+        case "$2" in
+            0|1|0.*|1.0) set_opt opacity "$2" num && echo "opacity: $2" ;;
+            *) echo "opacity: a number from 0.0 to 1.0" >&2; exit 1 ;;
+        esac ;;
+
+    iface)
+        # "auto" is stored as an empty string: the service then picks whichever
+        # interface has actually moved traffic, which is right for a laptop
+        # that switches between wifi and a dock.
+        [ "$2" = "auto" ] && set_opt iface "" str && { echo "iface: auto"; exit 0; }
+        [ -n "$2" ] && set_opt iface "$2" str && echo "iface: $2" ;;
+
+    status)
+        if hyprctl layers -j 2>/dev/null | grep -q "quickshell:statsHud"; then
+            echo "overlay: visible"
+        else
+            echo "overlay: hidden"
+        fi
+        if command -v jq >/dev/null 2>&1 && [ -r "$CONF" ]; then
+            jq -r '.statsHud | "layout:   \(.layout)\nposition: \(.position)\nopacity:  \(.opacity)\niface:    \(if .iface == "" then "auto" else .iface end)"' "$CONF"
+        fi ;;
+
+    -h|--help|help)
+        sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//' ;;
+
+    *)  echo "statshud: unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac

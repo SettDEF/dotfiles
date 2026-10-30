@@ -1,0 +1,6 @@
+[Unit]
+Description=Cleanup wallpaper history and select-thumbs cache
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/quickshell/ii/scripts/switchwall.sh --cleanup 90

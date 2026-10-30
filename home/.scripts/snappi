@@ -1,0 +1,443 @@
+#!/bin/bash
+# Enhanced Screenshot Script with Rounded Edges, Backgrounds, and Metadata
+# Supports: Fullscreen, Area, Window, Monitor
+# Features: Rounded edges, background layering, Imgur upload, GIMP opening, feh preview, metadata printing
+
+# Default directories
+SAVE_DIR="$HOME/Pictures/Screenshots"
+BACKGROUND_DIR="$HOME/Pictures/Screenshots/backgrounds"
+WALLPAPER_DIR="$HOME/.wallpapers"
+BACKUP_DIR="$HOME/Pictures/Screenshots/backup"
+
+# Ensure directories exist
+mkdir -p "$SAVE_DIR" "$BACKGROUND_DIR" "$WALLPAPER_DIR" "$BACKUP_DIR"
+
+# Color codes
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+BLUE="\033[0;34m"
+RESET="\033[0m"
+BOLD="\033[1m"
+
+# Imgur API settings (replace with your client ID)
+IMGUR_CLIENT_ID="your-imgur-client-id"
+IMGUR_API_URL="https://api.imgur.com/3/upload"
+
+# Default values
+FILE_FORMAT="png"
+BACKGROUND="palette"
+SHARPEN="0x1"
+EFFECTS=""
+COUNTDOWN=0
+CREATE_BACKUP=false
+OPEN_IN_GIMP=false
+UPLOAD_TO_IMGUR=false
+PREVIEW=false
+RESIZE=""
+CORNER_RADIUS=20      # Rounded corner radius
+SCALE_PERCENT=80      # Screenshot scale relative to background
+PADDING_PERCENT=20    # Background padding around screenshot
+
+# Function to display usage information
+usage() {
+  echo -e "${BOLD}Usage:${RESET} $0 [options] <screenshot_type>"
+  echo -e "\n${BOLD}Screenshot Types:${RESET}"
+  echo -e "  fullscreen    Capture the entire screen"
+  echo -e "  area          Select an area to capture"
+  echo -e "  window        Capture the currently focused window"
+  echo -e "  monitor       Capture a specific monitor"
+  echo -e "\n${BOLD}Options:${RESET}"
+  echo -e "  -b, --background <background>   Set the background (default: palette)"
+  echo -e "      Options: wallpaper, solid, background, randomize, solid+palette, all"
+  echo -e "  -f, --format <file_format>       Set output file format (png, jpg, jpeg, gif)"
+  echo -e "  -s, --sharpen <sharpen>          Apply sharpening (default: 0x1)"
+  echo -e "  -r, --resize <resize>            Resize the screenshot (e.g., 1280x720 or 50%)"
+  echo -e "  -e, --effects <effects>          Apply effects (e.g., blur, brightness, contrast)"
+  echo -e "  -c, --clipboard                  Copy screenshot path to clipboard"
+  echo -e "  -g, --gimp                       Open screenshot in GIMP"
+  echo -e "  -u, --upload                     Upload screenshot to Imgur"
+  echo -e "  -t, --countdown <time>           Set countdown before taking the screenshot (in seconds)"
+  echo -e "  -k, --backup                     Create a backup of the screenshot"
+  echo -e "  -p, --preview                    Preview the screenshot after capturing (using feh)"
+  echo -e "  -h, --help                       Display this help message"
+  exit 1
+}
+
+# Function to apply rounded corners to images
+apply_rounded_corners() {
+  magick "$1" -format "roundrectangle 1,1 %[fx:w-2],%[fx:h-2] $3,$3" \
+    -write mpr:arc +delete -alpha set \
+    -background none mpr:arc -alpha shape \
+    -compose DstIn -composite "$2"
+}
+
+countdown() {
+  local time=$1
+  for ((i = time; i > 0; i--)); do
+    echo -e "${YELLOW}Screenshot in $i seconds...${RESET}"
+    sleep 1
+  done
+  echo -e "${GREEN}Screenshot time!${RESET}"
+}
+
+# Function to detect monitor resolution
+detect_resolution() {
+  local monitor="$1"
+  local geometry
+  geometry=$(xrandr --listmonitors | grep "$monitor" | awk '{print $3}' | sed 's|/[^+]*||g')
+  RESOLUTION=$(echo "$geometry" | cut -d+ -f1)
+  [ -z "$RESOLUTION" ] && RESOLUTION="1920x1080"
+  echo -e "${BLUE}Using resolution: $RESOLUTION${RESET}"
+}
+
+# Function to process images with background and effects
+process_image() {
+  local image="$1"
+  local bg_file=""
+
+  # Get screenshot dimensions
+  local orig_w orig_h
+  orig_w=$(identify -format "%w" "$image")
+  orig_h=$(identify -format "%h" "$image")
+
+  # Calculate background size (original + padding percentage)
+  local bg_w bg_h
+  bg_w=$(( orig_w * (100 + PADDING_PERCENT) / 100 ))
+  bg_h=$(( orig_h * (100 + PADDING_PERCENT) / 100 ))
+
+  # Calculate new overlay size (make image smaller, scaled to a smaller percentage)
+  local overlay_w overlay_h
+  overlay_w=$(( orig_w * 60 / 100 ))
+  overlay_h=$(( orig_h * 60 / 100 ))
+
+  # Generate background based on type
+  case "$BACKGROUND" in
+    solid)
+      local random_color
+      random_color=$(printf "#%02x%02x%02x" $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
+      bg_file=$(mktemp --suffix=.png)
+      magick -size ${bg_w}x${bg_h} canvas:"$random_color" "$bg_file"
+      ;;
+    wallpaper)
+      bg_file=$(find "$WALLPAPER_DIR" -type f | shuf -n 1)
+      [ -f "$bg_file" ] || bg_file="/usr/share/backgrounds/default.jpg"
+      magick "$bg_file" -resize ${bg_w}x${bg_h}^ -gravity center -extent ${bg_w}x${bg_h} "$bg_file"
+      ;;
+    background)
+      if [ -d "$BACKGROUND_DIR" ] && [ ! -z "$(find "$BACKGROUND_DIR" -type f)" ]; then
+        bg_file=$(find "$BACKGROUND_DIR" -type f | shuf -n 1)
+      else
+        bg_file="$SAVE_DIR/default_background.png"
+      fi
+      ;;
+    palette)
+      # Create temporary workspace
+      local tmpdir
+      tmpdir=$(mktemp -d) || { echo -e "${RED}Temp directory creation failed!${RESET}"; return 1; }
+      trap 'rm -rf "$tmpdir"' EXIT
+
+      # Validate palette file
+      local palette_file="$HOME/.cache/color_palette.png"
+      [ ! -f "$palette_file" ] && {
+        echo -e "${RED}Create palette file first with:\n  magick <image> -resize 16x16! \"$palette_file\"${RESET}"
+        return 1
+      }
+
+      # Get random color from palette
+      read width height <<< "$(identify -format "%w %h" "$palette_file" 2>/dev/null)"
+      local pixel_color
+      pixel_color=$(magick "$palette_file" \
+        -format "%[hex:p{$((RANDOM % width)),$((RANDOM % height))}]" \
+        info: 2>/dev/null)
+      [ -z "$pixel_color" ] && { echo -e "${RED}Color extraction failed!${RESET}"; return 1; }
+      echo -e "${BLUE}Using palette color: #${pixel_color}${RESET}"
+
+      # Create solid background (1920x1080)
+      bg_file="${tmpdir}/background.png"
+      magick -size 1920x1080 canvas:"#${pixel_color}" "${bg_file}" || return 1
+      ;;
+    randomize)
+      local selection
+      selection=$(shuf -e "palette" "solid" "background" "wallpaper" -n 1)
+      BACKGROUND="$selection"
+      process_image "$image"
+      return
+      ;;
+    all)
+      local selection
+      selection=$(shuf -e "palette" "solid" "background" "wallpaper" -n 1)
+      BACKGROUND="$selection"
+      process_image "$image"
+      return
+      ;;
+    *)
+      BACKGROUND="palette"
+      if [ -f "$HOME/.cache/wallpaper_palette.png" ]; then
+        bg_file="$HOME/.cache/wallpaper_palette.png"
+      else
+        local random_color
+        random_color=$(printf "#%02x%02x%02x" $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
+        bg_file="$SAVE_DIR/random_solid_color.png"
+        magick -size ${bg_w}x${bg_h} canvas:"$random_color" "$bg_file" &
+      fi
+      ;;
+  esac
+
+  # Wait for any asynchronous background generation to finish
+  wait
+
+  # Apply rounded corners to the background
+  apply_rounded_corners "$bg_file" "$bg_file" "$CORNER_RADIUS"
+
+  # Process the screenshot:
+  # Resize the screenshot to a smaller size (60% of original)
+  local overlay_file
+  overlay_file=$(mktemp --suffix=.png)
+  magick "$image" -resize ${overlay_w}x${overlay_h} -background none -gravity center -extent ${bg_w}x${bg_h} "$overlay_file"
+
+  # Apply rounded corners to the screenshot overlay
+  apply_rounded_corners "$overlay_file" "$overlay_file" "$CORNER_RADIUS"
+
+  # Composite the overlay onto the background without blending
+  magick "$bg_file" "$overlay_file" -gravity center -composite "$image"
+
+  # Cleanup: remove temporary background file if it is not a persistent file
+  if [ "$bg_file" != "$HOME/.cache/wallpaper_palette.png" ]; then
+    rm -f "$bg_file"
+  fi
+  rm -f "$overlay_file"
+
+  echo -e "${GREEN}Final image created with ${SCALE_PERCENT}% scale, ${PADDING_PERCENT}% padding, and ${CORNER_RADIUS}px rounded corners!${RESET}"
+  print_all_file_metadata "$image"
+}
+
+# Function to print all metadata for a file
+print_all_file_metadata() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    echo -e "${BOLD}Complete Metadata for: $file${RESET}"
+    echo -e "--------------------------------------------"
+    echo -e "File Name: $(basename "$file")"
+    echo -e "Absolute Path: $(readlink -f "$file")"
+    echo -e "File Type: $(file -b "$file")"
+    echo -e "File Size: $(du -h "$file" | cut -f1)"
+    echo -e "Size in Bytes: $(stat -c %s "$file")"
+    echo -e "Permissions: $(stat -c %A "$file")"
+    echo -e "Owner: $(stat -c %U "$file")"
+    echo -e "Group: $(stat -c %G "$file")"
+    echo -e "Inode: $(stat -c %i "$file")"
+    echo -e "Number of Hard Links: $(stat -c %h "$file")"
+    echo -e "Last Accessed: $(stat -c %x "$file")"
+    echo -e "Last Modified: $(stat -c %y "$file")"
+    echo -e "Creation Time: $(stat -c %w "$file")"
+    echo -e "Block Size: $(stat -c %B "$file") bytes"
+    echo -e "MIME Type: $(file --mime-type -b "$file")"
+    echo -e "Charset: $(file -i "$file" | cut -d' ' -f2)"
+    echo -e "SHA-256 Checksum: $(sha256sum "$file" | awk '{print $1}')"
+    if command -v getfacl >/dev/null 2>&1; then
+      echo -e "ACL: $(getfacl "$file" 2>/dev/null)"
+    else
+      echo -e "ACL: Not available"
+    fi
+    if command -v getfattr >/dev/null 2>&1; then
+      echo -e "Extended Attributes: $(getfattr -d "$file" 2>/dev/null)"
+    else
+      echo -e "Extended Attributes: Not available"
+    fi
+    echo -e "SELinux Context: $(ls -Z "$file" 2>/dev/null)"
+    echo -e "--------------------------------------------"
+  else
+    echo -e "${RED}File not found: $file${RESET}"
+  fi
+}
+
+# Function to upload image to Imgur
+upload_to_imgur() {
+  local image="$1"
+  echo -e "${BLUE}Uploading image to Imgur...${RESET}"
+  RESPONSE=$(curl -s -H "Authorization: Client-ID $IMGUR_CLIENT_ID" -F "image=@$image" "$IMGUR_API_URL")
+  IMAGE_URL=$(echo "$RESPONSE" | jq -r '.data.link')
+  if [ "$IMAGE_URL" != "null" ]; then
+    echo -e "${GREEN}Image uploaded successfully! URL: $IMAGE_URL${RESET}"
+  else
+    echo -e "${RED}Failed to upload image.${RESET}"
+  fi
+}
+
+# Function to preview the image using feh
+preview() {
+  local file="$1"
+  if ! command -v feh >/dev/null 2>&1; then
+    echo -e "${RED}feh is not installed. Install it with 'sudo apt install feh' (or your package manager).${RESET}"
+    return 1
+  fi
+  sleep 2  # Increased delay to ensure file is ready
+  if [ -f "$file" ]; then
+    echo -e "${BLUE}Previewing with feh...${RESET}"
+    feh --auto-zoom "$file"
+  else
+    echo -e "${RED}Preview failed: File not found.${RESET}"
+  fi
+}
+
+# Main screenshot capture functions
+take_fullscreen() {
+  local filename="$SAVE_DIR/$(date '+%Y-%m-%d_%H-%M-%S').$FILE_FORMAT"
+  countdown "$COUNTDOWN"
+  scrot "$filename"
+  echo -e "${GREEN}${BOLD}Screenshot saved as $filename${RESET}"
+  process_image "$filename"
+  preview "$filename"
+}
+
+take_area() {
+  local filename="$SAVE_DIR/$(date '+%Y-%m-%d_%H-%M-%S').$FILE_FORMAT"
+  countdown "$COUNTDOWN"
+  scrot -s "$filename"
+  echo -e "${GREEN}${BOLD}Screenshot saved as $filename${RESET}"
+  process_image "$filename"
+  preview "$filename"
+}
+
+take_window() {
+  local filename="$SAVE_DIR/$(date '+%Y-%m-%d_%H-%M-%S').$FILE_FORMAT"
+  countdown "$COUNTDOWN"
+  scrot -u "$filename"
+  echo -e "${GREEN}${BOLD}Screenshot saved as $filename${RESET}"
+  process_image "$filename"
+  preview "$filename"
+}
+
+# Function to capture a specific monitor
+take_monitor() {
+  local monitors
+  monitors=$(xrandr | grep ' connected' | awk '{print $1}')
+  local selected_monitor
+  selected_monitor=$(echo "$monitors" | fzf --prompt "Select monitor: ")
+  
+  if [[ ! "$monitors" =~ "$selected_monitor" ]]; then
+    echo -e "${RED}Invalid monitor selected!${RESET}"
+    exit 1
+  fi
+
+  # Get monitor geometry (clean format: WxH+X+Y)
+  detect_resolution "$selected_monitor"
+  local geometry
+  geometry=$(xrandr --listmonitors | grep "$selected_monitor" | awk '{print $3}' | sed 's|/[^+]*||g')
+
+  local filename="$SAVE_DIR/$(date '+%Y-%m-%d_%H-%M-%S')_${selected_monitor}.$FILE_FORMAT"
+  
+  # Capture monitor with proper geometry
+  countdown "$COUNTDOWN"
+  scrot -d 1 --autoselect "$geometry" "$filename" || {
+    echo -e "${RED}Failed to capture monitor!${RESET}"
+    exit 1
+  }
+
+  # Wait for file creation
+  local retries=0
+  while [ ! -f "$filename" ] && [ $retries -lt 5 ]; do
+    sleep 0.5
+    ((retries++))
+  done
+
+  if [ ! -f "$filename" ]; then
+    echo -e "${RED}Screenshot file not created!${RESET}"
+    exit 1
+  fi
+
+  echo -e "${GREEN}${BOLD}Screenshot of $selected_monitor saved as $filename${RESET}"
+  process_image "$filename"
+  preview "$filename"
+}
+
+# -------------------------
+# Argument Parsing Section
+# -------------------------
+
+# Use GNU getopt to support both short and long options
+ARGS=$(getopt -o b:f:s:r:e:cgt:upkph -l background:,format:,sharpen:,resize:,effects:,clipboard,gimp,upload,countdown:,backup,preview,help -- "$@")
+if [ $? -ne 0 ]; then
+  usage
+fi
+
+eval set -- "$ARGS"
+
+while true; do
+  case "$1" in
+    -b|--background)
+      BACKGROUND="$2"
+      shift 2
+      ;;
+    -f|--format)
+      FILE_FORMAT="$2"
+      shift 2
+      ;;
+    -s|--sharpen)
+      SHARPEN="$2"
+      shift 2
+      ;;
+    -r|--resize)
+      RESIZE="$2"
+      shift 2
+      ;;
+    -e|--effects)
+      EFFECTS="$2"
+      shift 2
+      ;;
+    -c|--clipboard)
+      COPY_TO_CLIPBOARD=true
+      shift
+      ;;
+    -g|--gimp)
+      OPEN_IN_GIMP=true
+      shift
+      ;;
+    -u|--upload)
+      UPLOAD_TO_IMGUR=true
+      shift
+      ;;
+    -t|--countdown)
+      COUNTDOWN="$2"
+      shift 2
+      ;;
+    -k|--backup)
+      CREATE_BACKUP=true
+      shift
+      ;;
+    -p|--preview)
+      PREVIEW=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+# Main action: The first non-option argument is the screenshot type.
+SCREENSHOT_TYPE="$1"
+if [ -z "$SCREENSHOT_TYPE" ]; then
+  usage
+  exit 1
+fi
+
+case "$SCREENSHOT_TYPE" in
+  fullscreen) take_fullscreen ;;
+  area)       take_area ;;
+  window)     take_window ;;
+  monitor)    take_monitor ;;
+  *)
+    echo -e "${RED}Invalid screenshot type!${RESET}"
+    usage
+    exit 1
+    ;;
+esac

@@ -1,0 +1,60 @@
+#!/bin/sh
+# Resolve the configured mouse by NAME to its current event node, run the
+# KinetiX daemon on it, then KEEP WATCHING — a wireless mouse that sleeps and
+# reconnects comes back on a DIFFERENT eventN. The daemon has no idea; it keeps
+# grabbing the old (now deleted) node while the real mouse moves ungrabbed, so
+# the physics silently stops until something restarts it. This wrapper
+# re-resolves every 2s and relaunches the daemon on the new node.
+
+NAME=$(cat "$HOME/.config/kinetix-device" 2>/dev/null || echo "MX Master")
+
+resolve() {
+    for d in /dev/input/event*; do
+        [ -e "$d" ] || continue
+        b=${d##*/}
+        n=$(cat "/sys/class/input/$b/device/name" 2>/dev/null) || continue
+        case "$n" in
+            *"$NAME"*)
+                # Only the relative-pointer node (the actual mouse); skip the
+                # device's keyboard / consumer-control siblings, whose rel
+                # capability bitmask is 0 or empty.
+                rel=$(cat "/sys/class/input/$b/device/capabilities/rel" 2>/dev/null)
+                [ -n "$rel" ] && [ "$rel" != "0" ] && { echo "$d"; return 0; }
+                ;;
+        esac
+    done
+    return 1
+}
+
+# The daemon reads its config once at startup, from tmpfs — so a reboot wipes it
+# and it comes up on built-in defaults with your curve unapplied. Restore the
+# persistent copy before launching.
+SHM_CFG=/dev/shm/kinetix-config.json
+PERSIST_CFG="$HOME/.config/kinetix-config.json"
+seed_config() {
+    [ -s "$SHM_CFG" ] && return 0
+    [ -s "$PERSIST_CFG" ] || return 0
+    cp -f "$PERSIST_CFG" "$SHM_CFG" 2>/dev/null \
+        && echo "kinetix-run: restored config from $PERSIST_CFG"
+}
+
+while true; do
+    NODE=$(resolve) || { echo "kinetix-run: '$NAME' not connected, waiting"; sleep 2; continue; }
+    seed_config
+    echo "kinetix-run: $NAME -> $NODE"
+    "$HOME/.scripts/apps/knurl/kinetix" --daemon --device "$NODE" &
+    DPID=$!
+    # Watch: exit the inner loop (→ relaunch) if the daemon dies OR the mouse
+    # re-enumerates to a different node.
+    while kill -0 "$DPID" 2>/dev/null; do
+        sleep 2
+        CUR=$(resolve) || CUR=""
+        if [ "$CUR" != "$NODE" ]; then
+            echo "kinetix-run: node changed '$NODE' -> '${CUR:-gone}', relaunching"
+            kill "$DPID" 2>/dev/null
+            wait "$DPID" 2>/dev/null
+            break
+        fi
+    done
+    sleep 1
+done

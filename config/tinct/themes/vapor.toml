@@ -1,0 +1,24 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Vapor"
+dark = true
+derived = true
+
+[colors]
+purple1 = "#1a0033"
+purple2 = "#2d004a"
+purple3 = "#420061"
+purple4 = "#570078"
+purple5 = "#6d008f"
+purple6 = "#ff00ff"
+purple7 = "#ff66cc"
+purple8 = "#ffaaff"
+cyan1 = "#00ffff"
+cyan2 = "#66ffff"
+cyan3 = "#aaffff"
+yellow1 = "#ffff66"
+orange1 = "#ffaa66"
+
+[roles]
+background = "#1a0033"
+foreground = "#aaffff"
+primary = "#ff00ff"

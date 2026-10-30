@@ -1,0 +1,28 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Tokyo Night Moon"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#222436"
+grey2 = "#1e2030"
+blue1 = "#2f334d"
+blue2 = "#c8d3f5"
+blue3 = "#828bb8"
+blue4 = "#3b4261"
+blue5 = "#636da6"
+blue6 = "#444a73"
+red1 = "#ff757f"
+red2 = "#ff966c"
+orange1 = "#ffc777"
+green1 = "#c3e88d"
+cyan1 = "#4fd6be"
+cyan2 = "#86e1fc"
+blue7 = "#82aaff"
+purple1 = "#c099ff"
+purple2 = "#fca7ea"
+
+[roles]
+background = "#222436"
+foreground = "#c8d3f5"
+primary = "#ff757f"

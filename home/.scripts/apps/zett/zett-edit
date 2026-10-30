@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# zett-edit: edit text in zett from anywhere (the clipboard, a file, stdin), written back on every save.
+#
+#   zett-edit                 the clipboard: opens in zett, each save puts it back on the clipboard
+#   zett-edit --file F        a file (another program's temp file): zett edits it in place
+#   zett-edit --stdin         stdin in, the edited text out on stdout (for scripts and other tools)
+#   options: --name NAME (what it is: site, app; part of the kept file's name), --ext md|txt|…
+#
+# Nothing typed is lost: each edit is kept in ~/.local/share/zett/edits/ (a git folder, so zett's
+# C-c s searches every edit and its history). Quitting without saving changes nothing. Text that
+# looks like a secret (keys, tokens, private keys) is edited in a temporary place and kept nowhere.
+set -uo pipefail
+
+mode=clipboard name=clipboard ext=md file=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --file) mode=file; file=$2; shift ;;
+        --stdin) mode=stdin ;;
+        --name) name=$2; shift ;;
+        --ext) ext=$2; shift ;;
+        -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "zett-edit: unknown option $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+ZASH=$HOME/.local/bin/zash ZETT=$HOME/.local/bin/zett
+note() { notify-send -a zett -i accessories-text-editor "$@" 2>/dev/null || true; }
+
+# what to edit
+case "$mode" in
+    clipboard)
+        if ! wl-paste -l 2>/dev/null | grep -q -E '^text/|UTF8_STRING|^STRING'; then
+            note "Nothing to edit" "The clipboard holds no text"; exit 1
+        fi
+        text=$(wl-paste -n -t text 2>/dev/null) ;;
+    stdin) text=$(cat) ;;
+    file) [ -f "$file" ] || { echo "zett-edit: no file $file" >&2; exit 2; } ;;
+esac
+
+# a secret is edited where nothing keeps it (and zett's history goes there too)
+secret=0
+if [ "$mode" != file ] && printf '%s' "$text" | grep -q -E -- '-----BEGIN [A-Z ]*PRIVATE KEY|(^|[^A-Za-z0-9])(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[abp]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})'; then
+    secret=1
+fi
+
+if [ "$mode" = file ]; then
+    target=$file
+elif [ $secret = 1 ]; then
+    tmp=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/zett-edit.XXXXXX")
+    trap 'rm -rf "$tmp"' EXIT
+    target=$tmp/secret.$ext
+    export XDG_STATE_HOME=$tmp/state
+else
+    keep=${XDG_DATA_HOME:-$HOME/.local/share}/zett/edits
+    sub=$keep/$(date +%Y-%m)
+    mkdir -p "$sub"
+    # a project of its own, so zett's search everything (C-c s) covers every edit
+    [ -d "$keep/.git" ] || git -C "$keep" init -q 2>/dev/null
+    target=$sub/$(date +%d-%H%M%S)-$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-40).$ext
+fi
+[ "$mode" = file ] || printf '%s' "$text" > "$target"
+before=$(sha1sum < "$target")
+
+# every save goes back at once (the clipboard), not only at the end
+watcher=""
+if [ "$mode" = clipboard ]; then
+    ( inotifywait -q -m -e close_write --format '%w' "$target" 2>/dev/null | while read -r _; do wl-copy < "$target"; done ) &
+    watcher=$!
+fi
+
+title="zett · $name"
+[ $secret = 1 ] && title="zett · $name (secret: kept nowhere)"
+if [ -n "${ZETT_EDIT_EDITOR:-}" ]; then
+    # tests: another editor, given the file (ZETT_EDIT_EDITOR="sed -i s/a/b/")
+    $ZETT_EDIT_EDITOR "$target"
+elif [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    env -u ZEIT -u ZEIT_PANE "$ZASH" --float 1000x560 -e "$ZETT '$target'"
+else
+    "$ZETT" "$target" </dev/tty >/dev/tty
+fi
+
+[ -n "$watcher" ] && { kill "$watcher" 2>/dev/null; pkill -P "$watcher" 2>/dev/null; }
+
+if [ "$(sha1sum < "$target")" = "$before" ]; then
+    # nothing saved: the original stays as it was
+    [ "$mode" = stdin ] && printf '%s' "$text"
+    [ "$mode" != file ] && [ "$secret" = 0 ] && rm -f "$target"
+    exit 0
+fi
+case "$mode" in
+    clipboard) wl-copy < "$target"; note "Edited text copied" "$(head -c 120 "$target")" ;;
+    stdin) cat "$target" ;;
+esac

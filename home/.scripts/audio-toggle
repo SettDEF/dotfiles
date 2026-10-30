@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# audio-toggle — flip the default PipeWire sink between two presets and move
+# every running stream to the new default. Bind this to a key in Hyprland;
+# afterwards your existing XF86AudioRaiseVolume / scroll-on-bar keep working
+# unchanged — they always target the default sink.
+#
+# Edit PRESETS if your sinks differ. The string is matched as a substring
+# against `pactl list short sinks`, so partial names work.
+
+set -euo pipefail
+
+# Substring matched against sink names; ORDER = toggle cycle.
+PRESETS=(
+    "Roland"     # alsa_output.usb-Roland_DJ-808-01.iec958-stereo
+    "Sonova"     # alsa_output.usb-Sonova_Consumer_Hearing_HDB_630
+)
+
+resolve_sink() {
+    local needle="$1"
+    pactl list short sinks | awk -v n="$needle" '$0 ~ n { print $2; exit }'
+}
+
+current_default="$(pactl get-default-sink)"
+
+# Find current preset index by substring; default to 0 if no match.
+current_idx=0
+for i in "${!PRESETS[@]}"; do
+    if [[ "$current_default" == *"${PRESETS[$i]}"* ]]; then
+        current_idx=$i
+        break
+    fi
+done
+
+next_idx=$(( (current_idx + 1) % ${#PRESETS[@]} ))
+next_label="${PRESETS[$next_idx]}"
+next_sink="$(resolve_sink "$next_label")"
+
+if [[ -z "$next_sink" ]]; then
+    notify-send -u critical -i audio-volume-muted "Audio toggle" \
+        "Sink '$next_label' not found — is the device plugged in?"
+    exit 1
+fi
+
+pactl set-default-sink "$next_sink"
+
+# Move every existing playback stream to the new default so currently-playing
+# apps (Bitwig, browser, mpv) follow immediately.
+pactl list short sink-inputs | awk '{print $1}' | while read -r input; do
+    pactl move-sink-input "$input" "$next_sink" 2>/dev/null || true
+done
+
+# Pretty label and icon for the toast.
+case "$next_label" in
+    Roland)  icon="audio-card"     ; pretty="Roland DJ-808 (Bitwig output)" ;;
+    Sonova)  icon="audio-headphones"; pretty="Sonova HDB 630 (Headphones)"  ;;
+    *)       icon="audio-volume-high"; pretty="$next_label" ;;
+esac
+
+notify-send -i "$icon" "Audio output" "→ $pretty"

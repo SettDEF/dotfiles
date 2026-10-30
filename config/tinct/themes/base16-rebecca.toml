@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Rebecca"
+dark = true
+derived = true
+
+[colors]
+blue1 = "#292a44"
+purple1 = "#663399"
+blue2 = "#383a62"
+purple2 = "#666699"
+purple3 = "#a0a0c5"
+grey1 = "#f1eff8"
+purple4 = "#ccccff"
+grey2 = "#53495d"
+purple5 = "#a0a0c5"
+yellow1 = "#efe4a1"
+purple6 = "#ae81ff"
+cyan1 = "#6dfedf"
+blue3 = "#8eaee0"
+green1 = "#2de0a7"
+blue4 = "#7aa5ff"
+purple7 = "#ff79c6"
+
+[roles]
+background = "#292a44"
+foreground = "#f1eff8"
+primary = "#ff79c6"

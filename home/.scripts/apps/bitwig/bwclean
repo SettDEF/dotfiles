@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────
+#  bw_clean.sh — Universal Bitwig export filename cleaner
+#  Strips auto-appended Bitwig suffixes from exported audio.
+#
+#  Usage:
+#    ./bw_clean.sh [OPTIONS] [FILE|DIR]
+#
+#  Options:
+#    -w, --watch <dir>       Watch a directory, clean on new file
+#    -o, --output <dir>      Move cleaned files to this directory
+#    -r, --recursive         Process subdirectories too
+#    -d, --dry-run           Preview without making changes
+#    -v, --verbose           Show detailed output
+#    -e, --ext <ext>         File extension to target (default: wav)
+#    -p, --pattern <regex>   Custom suffix pattern to strip
+#    -h, --help              Show this help
+#
+#  Examples:
+#    # Clean a single file
+#    ./bw_clean.sh my_export-bounce-pre-fx-1.wav
+#
+#    # Clean all .wav files in a folder
+#    ./bw_clean.sh ~/exports
+#
+#    # Watch folder, move cleaned files to output
+#    ./bw_clean.sh --watch ~/exports --output ~/project/sounds
+#
+#    # Dry run to preview changes
+#    ./bw_clean.sh --dry-run ~/exports
+#
+#    # Custom suffix pattern
+#    ./bw_clean.sh --pattern '(-bounce|-take)(-[a-z0-9]+)*-[0-9]+' ~/exports
+#
+#    # Target .ogg files instead
+#    ./bw_clean.sh --ext ogg ~/exports
+# ─────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+# ── Defaults ─────────────────────────────────────────────────
+WATCH_DIR=""
+OUTPUT_DIR=""
+RECURSIVE=false
+DRY_RUN=false
+VERBOSE=false
+SINGLE_TARGET=""
+EXT="wav"
+# Default pattern covers: -bounce-pre-fx-1, -bounce-1, -take-3, -pre-fx-2
+STRIP_PATTERN='(-bounce|-take|-pre-fx|-post_fader)(-[a-z0-9_]+)*-?[0-9]+'
+
+# ── Colors ───────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
+
+# ── Logging ──────────────────────────────────────────────────
+info()    { echo -e "${CYAN}→${RESET} $*"; }
+ok()      { echo -e "${GREEN}✓${RESET} $*"; }
+warn()    { echo -e "${YELLOW}!${RESET} $*"; }
+err()     { echo -e "${RED}✗${RESET} $*" >&2; }
+verbose() { $VERBOSE && echo -e "  $*" || true; }
+drylog()  { echo -e "${YELLOW}[dry-run]${RESET} $*"; }
+
+# ── Help ─────────────────────────────────────────────────────
+usage() {
+  sed -n '3,28p' "$0" | sed 's/^#  \?//'
+  exit 0
+}
+
+# ── Parse args ───────────────────────────────────────────────
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -w|--watch)
+        # If next arg is a flag or missing, use current dir
+        if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
+          WATCH_DIR="."
+          shift
+        else
+          WATCH_DIR="$2"
+          shift 2
+        fi
+        ;;
+      -o|--output)    OUTPUT_DIR="$2";   shift 2 ;;
+      -r|--recursive) RECURSIVE=true;    shift ;;
+      -d|--dry-run)   DRY_RUN=true;      shift ;;
+      -v|--verbose)   VERBOSE=true;      shift ;;
+      -e|--ext)       EXT="$2";          shift 2 ;;
+      -p|--pattern)   STRIP_PATTERN="$2"; shift 2 ;;
+      -h|--help)      usage ;;
+      -*)             err "Unknown option: $1"; usage ;;
+      *)              SINGLE_TARGET="$1"; shift ;;
+    esac
+  done
+}
+
+# ── Strip Bitwig suffix ───────────────────────────────────────
+# Input:  dread_swell_m_01-bounce-pre-fx-1.wav
+# Output: dread_swell_m_01.wav
+clean_name() {
+  local filepath="$1"
+  local dir ext base cleaned
+
+  dir=$(dirname "$filepath")
+  base=$(basename "$filepath")
+  ext="${base##*.}"
+  base="${base%.*}"
+
+  # Strip the pattern from the base name
+  cleaned=$(echo "$base" | sed -E "s/${STRIP_PATTERN}//g")
+
+  # Warn if nothing was stripped
+  if [[ "$cleaned" == "$base" ]]; then
+    verbose "No Bitwig suffix found in: $(basename "$filepath")"
+  fi
+
+  echo "${dir}/${cleaned}.${ext}"
+}
+
+# ── Process a single file ────────────────────────────────────
+process_file() {
+  local src="$1"
+  local cleaned dest
+
+  # Skip if not target extension
+  if [[ "${src##*.}" != "$EXT" ]]; then
+    verbose "Skipping (not .$EXT): $src"
+    return
+  fi
+
+  cleaned=$(clean_name "$src")
+  cleaned_base=$(basename "$cleaned")
+  src_base=$(basename "$src")
+
+  # Determine destination
+  if [[ -n "$OUTPUT_DIR" ]]; then
+    dest="${OUTPUT_DIR}/${cleaned_base}"
+  else
+    dest="$(dirname "$src")/${cleaned_base}"
+  fi
+
+  # Skip if name is already clean
+  if [[ "$src" == "$dest" ]]; then
+    verbose "Already clean: $src_base"
+    return
+  fi
+
+  # Guard: don't overwrite existing file
+  if [[ -f "$dest" && "$src" != "$dest" ]]; then
+    warn "Skipping — destination already exists: $dest"
+    return
+  fi
+
+  if $DRY_RUN; then
+    drylog "${src_base}  →  ${cleaned_base}"
+    return
+  fi
+
+  # Create output dir if needed
+  if [[ -n "$OUTPUT_DIR" ]]; then
+    mkdir -p "$OUTPUT_DIR"
+  fi
+
+  if [[ -n "$OUTPUT_DIR" ]]; then
+    cp "$src" "$dest"
+    verbose "Copied to: $dest"
+  else
+    mv "$src" "$dest"
+  fi
+
+  ok "${src_base}  →  ${cleaned_base}"
+}
+
+# ── Process a directory ──────────────────────────────────────
+process_dir() {
+  local dir="$1"
+  local find_args=("$dir" -maxdepth 1 -name "*.${EXT}")
+  $RECURSIVE && find_args=("$dir" -name "*.${EXT}")
+
+  local count=0
+  while IFS= read -r -d '' file; do
+    process_file "$file"
+    ((count++)) || true
+  done < <(find "${find_args[@]}" -print0 2>/dev/null)
+
+  [[ $count -eq 0 ]] && warn "No .${EXT} files found in: $dir"
+}
+
+# ── Watch mode ───────────────────────────────────────────────
+watch_dir() {
+  local dir="$1"
+
+  # Check for inotifywait (Linux) or fswatch (macOS)
+  if command -v inotifywait &>/dev/null; then
+    info "Watching (inotifywait): $dir"
+    info "Press Ctrl+C to stop."
+    echo ""
+    local inotify_args=(-m -e close_write --format '%w%f')
+    $RECURSIVE && inotify_args+=(-r)
+    inotifywait "${inotify_args[@]}" "$dir" 2>/dev/null | while read -r file; do
+      [[ "${file##*.}" == "$EXT" ]] && process_file "$file"
+    done
+
+  elif command -v fswatch &>/dev/null; then
+    info "Watching (fswatch): $dir"
+    info "Press Ctrl+C to stop."
+    echo ""
+    local fswatch_args=(-0)
+    $RECURSIVE && fswatch_args+=(-r)
+    fswatch "${fswatch_args[@]}" "$dir" | while IFS= read -r -d '' file; do
+      [[ "${file##*.}" == "$EXT" ]] && process_file "$file"
+    done
+
+  else
+    err "Watch mode requires inotifywait (Linux) or fswatch (macOS)."
+    err "Install with:"
+    err "  Linux:  sudo apt install inotify-tools"
+    err "  macOS:  brew install fswatch"
+    exit 1
+  fi
+}
+
+# ── Main ─────────────────────────────────────────────────────
+main() {
+  parse_args "$@"
+
+  # Print config in verbose mode
+  if $VERBOSE; then
+    echo ""
+    info "Config:"
+    echo "  Extension : .$EXT"
+    echo "  Pattern   : $STRIP_PATTERN"
+    echo "  Dry run   : $DRY_RUN"
+    echo "  Recursive : $RECURSIVE"
+    [[ -n "$OUTPUT_DIR" ]] && echo "  Output    : $OUTPUT_DIR"
+    echo ""
+  fi
+
+  if [[ -n "$WATCH_DIR" ]]; then
+    info "Processing existing files on launch..."
+    process_dir "$WATCH_DIR"
+    echo ""
+    watch_dir "$WATCH_DIR"
+
+  elif [[ -n "$SINGLE_TARGET" ]]; then
+    if [[ -f "$SINGLE_TARGET" ]]; then
+      process_file "$SINGLE_TARGET"
+    elif [[ -d "$SINGLE_TARGET" ]]; then
+      process_dir "$SINGLE_TARGET"
+    else
+      err "Not a file or directory: $SINGLE_TARGET"
+      exit 1
+    fi
+
+  else
+    err "No target specified. Use --watch <dir>, or pass a file/directory."
+    echo ""
+    usage
+  fi
+}
+
+main "$@"

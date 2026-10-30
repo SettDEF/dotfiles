@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Gives systemd the session's display variables, and restarts xdg-desktop-portal
+# only if it started without them.
+#
+# The portal can start before Hyprland exports WAYLAND_DISPLAY/DISPLAY. Every app it
+# launches ("Open With" from Telegram, links from Flatpaks…) then inherits an empty
+# display and silently fails to open. Safe to run on every Hyprland reload: a
+# portal that already has the display is left alone (no screen-share cut off).
+set -uo pipefail
+
+dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE
+
+pid=$(systemctl --user show -p MainPID --value xdg-desktop-portal.service 2>/dev/null)
+[[ -n "$pid" && "$pid" != 0 ]] || exit 0
+if ! tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^WAYLAND_DISPLAY=.\+'; then
+    systemctl --user restart xdg-desktop-portal.service
+fi

@@ -1,0 +1,86 @@
+# PS3 Edition: zfloat panel shaders in the spirit of the PS3 menu (XMB). Own code, not Sony's.
+# One scene (scene.glsl) holds every element; each preset below is a different FORM of it,
+# and switching between them morphs one form into the other.
+#   zash.toml:  [zfloat.shaders]  Claude = "ps3/wave"
+#   zeit:       z.zfloat('claude', { shader = 'ps3/silk', morph = 3 })   -- or: zeit zfloat-shader ps3/silk -m 3
+#   options:    [zfloat.shader_options."ps3/wave"]  speed = 0.6
+# Each option: its default, its range, what it does, and (morph) when it changes in a morph.
+name = "PS3 Edition"
+about = "The menu wave, silk ribbons, light dust, bokeh and rings: forms that morph into each other."
+
+[shaders.scene.options]
+band     = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the wave band is (0: none)", morph = "late" }
+calm     = { default = 0.5,  min = 0.0, max = 1.0,  about = "how much the bottom calms down, so text there stays readable" }
+camera   = { default = 1.0,  min = 0.0, max = 1.0,  about = "1: the scene stays put and the panel looks over it like a camera; 0: it moves with the panel" }
+dust     = { default = 0.0,  min = 0.0, max = 3.0,  about = "how much light drifts in depth (points, or discs with size)" }
+glow     = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the dust, the rings and the background tint are" }
+height   = { default = 0.62, min = 0.0, max = 1.0,  about = "where the band runs (and the rings start), from the bottom of the window (0) to the top (1)" }
+lines    = { default = 14.0, min = 1.0, max = 32.0, about = "how many lines (or ribbons) the band has; a line fades in or out as it passes" }
+month    = { default = 0.0,  min = 0.0, max = 1.0,  about = "1: the colour of the month, like the PS3; 0: your theme's accent" }
+rings    = { default = 0.0,  min = 0.0, max = 2.0,  about = "rings of light spreading out from the middle", morph = "late" }
+scatter  = { default = 0.0,  min = 0.0, max = 1.0,  about = "breaks the band's lines into pieces, then points drifting apart (1: dust)", morph = "early" }
+size     = { default = 0.0,  min = 0.0, max = 1.0,  about = "0: the dust is points; 1: large soft discs of light (bokeh)" }
+sparkles_amount = { default = 1.0, min = 0.0, max = 2.0, about = "how many sparkles twinkle near the band" }
+speed    = { default = 1.0,  min = 0.0, max = 3.0,  about = "how fast everything moves" }
+width    = { default = 0.0,  min = 0.0, max = 1.0,  about = "0: thin lines; 1: broad silk ribbons that fold and catch the light" }
+
+[shaders.coldboot.options]
+aurora   = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the sheen drifting above the horizon is" }
+calm     = { default = 0.5,  min = 0.0, max = 1.0,  about = "how much the bottom calms down, so text there stays readable" }
+camera   = { default = 1.0,  min = 0.0, max = 1.0,  about = "1: the scene stays put and the panel looks over it like a camera; 0: it moves with the panel" }
+glow     = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the horizon's bloom and the background tint are" }
+height   = { default = 0.5,  min = 0.0, max = 1.0,  about = "where the horizon runs, from the bottom of the window (0) to the top (1)" }
+horizon  = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the horizon line is (0: none)" }
+month    = { default = 0.0,  min = 0.0, max = 1.0,  about = "1: the colour of the month, like the PS3; 0: your theme's accent" }
+speed    = { default = 1.0,  min = 0.0, max = 3.0,  about = "how fast the streaks rush in" }
+streaks  = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the streaks of light are (0: none)" }
+
+
+
+[shaders.xmb.options]
+calm     = { default = 0.6,  min = 0.0, max = 1.0,  about = "how much the bottom deepens and quiets, so text there stays readable" }
+camera   = { default = 1.0,  min = 0.0, max = 1.0,  about = "1: the scene stays put and the panel looks over it like a camera; 0: it moves with the panel" }
+glow     = { default = 1.0,  min = 0.0, max = 2.0,  about = "the soft light up and left of the middle" }
+height   = { default = 0.52, min = 0.0, max = 1.0,  about = "where the sheets glide, from the bottom of the window (0) to the top (1)" }
+month    = { default = 1.0,  min = 0.0, max = 1.0,  about = "1: the colour of the month, like the PS3; 0: your theme's accent" }
+specks   = { default = 1.0,  min = 0.0, max = 2.0,  about = "the faint specks of light drifting (0: none)" }
+speed    = { default = 1.0,  min = 0.0, max = 3.0,  about = "how fast the sheets glide" }
+waves    = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the sheets' edges are" }
+[shaders.tide.options]
+calm     = { default = 0.5,  min = 0.0, max = 1.0,  about = "how much the bottom calms down, so text there stays readable" }
+camera   = { default = 1.0,  min = 0.0, max = 1.0,  about = "1: the scene stays put and the panel looks over it like a camera; 0: it moves with the panel" }
+glow     = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the low glow, its reflection and the background tint are" }
+grid     = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the sea's grid lines are (0: none)" }
+height   = { default = 0.55, min = 0.0, max = 1.0,  about = "where the horizon runs, from the bottom of the window (0) to the top (1)" }
+horizon  = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the horizon line is (0: none)" }
+month    = { default = 0.0,  min = 0.0, max = 1.0,  about = "1: the colour of the month, like the PS3; 0: your theme's accent" }
+moon     = { default = 1.0,  min = 0.0, max = 2.0,  about = "the glow low over the water and its column mirrored in it (0: none)" }
+speed    = { default = 1.0,  min = 0.0, max = 3.0,  about = "how fast the swell rolls in" }
+stars    = { default = 1.0,  min = 0.0, max = 2.0,  about = "how bright the stars above are (0: none)" }
+waves    = { default = 1.0,  min = 0.0, max = 2.5,  about = "how high the swell rises (0: a flat calm sea)" }
+# the forms: what "ps3/<name>" is. An option left out keeps its default (so every form says
+# what it turns off, or it would keep the last form's value in a morph)
+[presets.wave]
+shader = "scene"
+about = "The menu wave: a band of thin glowing lines flowing across, sparkles caught in it."
+values = { band = 1.0, width = 0.0, lines = 14.0, scatter = 0.0, dust = 0.0, size = 0.0, rings = 0.0, sparkles_amount = 1.0, speed = 1.0 }
+
+[presets.silk]
+shader = "scene"
+about = "Silk: the lines merge into three broad ribbons that fold slowly and catch the light."
+values = { band = 1.0, width = 1.0, lines = 3.0, scatter = 0.0, dust = 0.0, size = 0.0, rings = 0.0, sparkles_amount = 0.2, speed = 0.6 }
+
+[presets.dust]
+shader = "scene"
+about = "Dust: the lines break up into points of light drifting in depth."
+values = { band = 0.0, width = 0.0, lines = 14.0, scatter = 1.0, dust = 1.0, size = 0.0, rings = 0.0, sparkles_amount = 0.3, speed = 0.8 }
+
+[presets.bokeh]
+shader = "scene"
+about = "Bokeh: the dust grows into large soft discs of light, out of focus."
+values = { band = 0.0, width = 0.0, lines = 14.0, scatter = 1.0, dust = 0.7, size = 1.0, rings = 0.0, sparkles_amount = 0.0, speed = 0.5 }
+
+[presets.ripple]
+shader = "scene"
+about = "Ripple: rings of light spreading from the middle, a little dust around them."
+values = { band = 0.0, width = 0.0, lines = 14.0, scatter = 1.0, dust = 0.3, size = 0.0, rings = 1.0, sparkles_amount = 0.5, speed = 1.0 }

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# wine-affinity — run the Affinity (v3 unified) Wine env on /mnt/storage.
+# The prefix lives at ~/.AffinityLinux (symlink -> /mnt/storage/usr/mooon/wine/AffinityLinux),
+# isolated from ~/.wine (default) and ~/.wine-audio (yabridge).
+#
+#   wine-affinity run            launch Affinity (the normal way to start it)
+#   wine-affinity direct         launch Affinity.exe directly (skip the plugin hook)
+#   wine-affinity <cmd> [args]   run any wine command in this prefix
+#   wine-affinity tricks <verb>  winetricks in this prefix
+#   wine-affinity install        re-run the AffinityOnLinux GUI installer
+#   wine-affinity cfg            winecfg for this prefix
+#   wine-affinity prefix         print the prefix path
+export WINEPREFIX="$HOME/.AffinityLinux"
+export WINEARCH=win64
+
+EW="$WINEPREFIX/ElementalWarriorWine/bin"
+WINE="$([[ -x "$EW/wine" ]] && echo "$EW/wine" || command -v wine)"
+APP="$WINEPREFIX/drive_c/Program Files/Affinity/Affinity"
+
+# Renderer tweaks the installer wanted — set here so SHELL quoting is correct
+# (the generated .desktop got these wrong → "illegal environment variable name").
+launch() {
+    export DXVK_ASYNC=0
+    export DXVK_CONFIG="d3d9.deferSurfaceCreation = True; d3d9.shaderModel = 1"
+    exec "$WINE" "$APP/$1"
+}
+
+case "${1:-}" in
+    run)     launch "AffinityHook.exe" ;;     # normal start (plugin loader + WineFix)
+    direct)  launch "Affinity.exe" ;;         # fallback if the hook misbehaves
+    tricks)  shift; exec winetricks "$@" ;;
+    install) exec python3 /mnt/storage/usr/mooon/wine/AffinityLinuxInstaller.py ;;
+    cfg)     exec "$([[ -x "$EW/winecfg" ]] && echo "$EW/winecfg" || command -v winecfg)" ;;
+    prefix)  echo "$WINEPREFIX -> $(readlink "$WINEPREFIX" 2>/dev/null)" ;;
+    "")      echo "usage: wine-affinity <run|direct|tricks|install|cfg|prefix> | <wine args>"; exit 1 ;;
+    *)       exec "$WINE" "$@" ;;
+esac

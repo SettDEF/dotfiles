@@ -1,0 +1,29 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Winter Is Coming Dark Blue"
+dark = true
+derived = true
+
+[colors]
+blue1 = "#011627"
+blue2 = "#a7dbf7"
+blue3 = "#011627"
+red1 = "#ef5350"
+green1 = "#22da6e"
+yellow1 = "#f7ecb5"
+blue4 = "#219fd5"
+purple1 = "#c792ea"
+cyan1 = "#80cbc4"
+grey1 = "#d6deeb"
+blue5 = "#5f7e97"
+red2 = "#ef9a9a"
+green2 = "#addb67"
+yellow2 = "#ffcb6b"
+blue6 = "#82aaff"
+purple2 = "#c792ea"
+cyan2 = "#7fdbca"
+grey2 = "#ffffff"
+
+[roles]
+background = "#011627"
+foreground = "#ffffff"
+primary = "#22da6e"

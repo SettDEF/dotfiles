@@ -1,0 +1,351 @@
+#!/bin/bash
+# saveswap
+# Swaps between different game save profiles atomically using directory renaming.
+# Tracks state and paths per-game using an SQLite database.
+
+set -euo pipefail
+
+DB_DIR="/home/caesar/.local/share/saveswap"
+mkdir -p "$DB_DIR"
+DB_PATH="$DB_DIR/state.db"
+
+# Initialize SQLite database schema
+sqlite3 "$DB_PATH" "CREATE TABLE IF NOT EXISTS state (game TEXT PRIMARY KEY, active_profile TEXT);"
+# Schema migration: Add 'path' column if it doesn't exist
+if ! sqlite3 "$DB_PATH" "PRAGMA table_info(state);" | grep -q "path"; then
+    sqlite3 "$DB_PATH" "ALTER TABLE state ADD COLUMN path TEXT;"
+fi
+
+# Usage helper
+usage() {
+    echo "saveswap — Atomic save profile manager"
+    echo ""
+    echo "Usage:"
+    echo "  $0 <game_id> <profile_name> <target_directory_path> [options]"
+    echo "  $0 list [game_id]"
+    echo "  $0 fetch <game_id> <profile_name> [target_directory_path] [download_url]"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run, -n  Preview changes without modifying the disk or database"
+    echo "  --notify       Send a desktop notification upon successful switch"
+    echo ""
+    exit 1
+}
+
+# ── COMMAND: fetch ────────────────────────────────────────────────────────
+if [[ "${1:-}" == "fetch" ]]; then
+    shift
+    
+    GAME=""
+    PROFILE=""
+    TARGET_DIR=""
+    URL=""
+    
+    # Curated preset URLs
+    declare -A PRESETS
+    PRESETS["rdr2:chapter2"]="https://github.com/saveswap/saves/raw/main/rdr2/chapter2.zip"
+    PRESETS["rdr2:100percent"]="https://github.com/saveswap/saves/raw/main/rdr2/100percent.zip"
+    PRESETS["balatro:100percent"]="https://github.com/saveswap/saves/raw/main/balatro/100percent.zip"
+    PRESETS["cultofthelamb:100percent"]="https://github.com/saveswap/saves/raw/main/cultofthelamb/100percent.zip"
+    PRESETS["ballionaire:100percent"]="https://github.com/saveswap/saves/raw/main/ballionaire/100percent.zip"
+
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: saveswap fetch <game_id> <profile_name> [target_directory_path] [download_url]"
+        echo ""
+        echo "Available Presets:"
+        for key in "${!PRESETS[@]}"; do
+            echo "  * ${key/:/ -> }"
+        done
+        exit 1
+    fi
+
+    GAME="$1"
+    PROFILE="$2"
+    shift 2
+
+    # Parse remaining arguments (path and/or url)
+    if [[ $# -gt 0 ]]; then
+        if [[ "$1" =~ ^https?:// ]]; then
+            URL="$1"
+            shift
+        else
+            TARGET_DIR="$1"
+            shift
+        fi
+    fi
+
+    if [[ $# -gt 0 ]]; then
+        if [[ "$1" =~ ^https?:// ]]; then
+            URL="$1"
+            shift
+        fi
+    fi
+
+    # Retrieve target directory from database if not specified
+    if [[ -z "$TARGET_DIR" ]]; then
+        TARGET_DIR=$(sqlite3 "$DB_PATH" "SELECT path FROM state WHERE game='$GAME' LIMIT 1;")
+    fi
+
+    if [[ -z "$TARGET_DIR" ]]; then
+        echo "Error: Game '$GAME' is not yet tracked. Please specify the target directory path." >&2
+        exit 1
+    fi
+
+    # Retrieve URL from presets if not specified
+    if [[ -z "$URL" ]]; then
+        PRESET_KEY="${GAME}:${PROFILE}"
+        if [[ -n "${PRESETS[$PRESET_KEY]:-}" ]]; then
+            URL="${PRESETS[$PRESET_KEY]}"
+        else
+            echo "Error: No preset URL found for '$PRESET_KEY', and no download URL was provided." >&2
+            echo "Usage: saveswap fetch <game_id> <profile_name> [target_path] <download_url>" >&2
+            exit 1
+        fi
+    fi
+
+    echo "Fetching save for '$GAME' ($PROFILE) from '$URL'..."
+
+    # Create temporary directory for download
+    TEMP_DIR=$(mktemp -d)
+    trap 'rm -rf "$TEMP_DIR"' EXIT
+
+    ARCHIVE="$TEMP_DIR/save_archive"
+    
+    # Download using curl
+    if ! curl -L -f -o "$ARCHIVE" "$URL"; then
+        echo "Error: Failed to download save file from '$URL'" >&2
+        exit 1
+    fi
+
+    EXTRACT_DIR="$TEMP_DIR/extracted"
+    mkdir -p "$EXTRACT_DIR"
+
+    # Auto-detect archive type and extract
+    MIME_TYPE=$(file --mime-type -b "$ARCHIVE" 2>/dev/null || echo "")
+    if [[ "$URL" == *.zip ]] || [[ "$MIME_TYPE" == "application/zip" ]]; then
+        unzip -q -o "$ARCHIVE" -d "$EXTRACT_DIR"
+    elif [[ "$URL" == *.tar.gz ]] || [[ "$URL" == *.tgz ]] || [[ "$MIME_TYPE" == "application/gzip" ]] || [[ "$MIME_TYPE" == "application/x-tar" ]]; then
+        tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
+    elif [[ "$URL" == *.7z ]] || [[ "$MIME_TYPE" == "application/x-7z-compressed" ]]; then
+        7z x "$ARCHIVE" -o"$EXTRACT_DIR" -y >/dev/null
+    elif [[ "$URL" == *.rar ]] || [[ "$MIME_TYPE" == "application/vnd.rar" ]] || [[ "$MIME_TYPE" == "application/x-rar" ]]; then
+        unrar x "$ARCHIVE" "$EXTRACT_DIR" -y >/dev/null
+    else
+        # Fallback to copy directly if it's a raw file
+        cp "$ARCHIVE" "$EXTRACT_DIR/"
+    fi
+
+    # Unnest directory if the archive contains a single parent folder
+    SRC_DIR="$EXTRACT_DIR"
+    while true; do
+        FILES_COUNT=$(find "$SRC_DIR" -maxdepth 1 | wc -l)
+        if [[ "$FILES_COUNT" -eq 3 ]]; then
+            SINGLE_ITEM=$(find "$SRC_DIR" -maxdepth 1 -mindepth 1)
+            if [[ -d "$SINGLE_ITEM" ]]; then
+                SRC_DIR="$SINGLE_ITEM"
+                continue
+            fi
+        fi
+        break
+    done
+
+    # Normalize target path
+    TARGET_DIR="${TARGET_DIR%/}"
+    REQUESTED_BACKUP="${TARGET_DIR}.${PROFILE}"
+
+    # Prepare backup directory
+    rm -rf "$REQUESTED_BACKUP"
+    mkdir -p "$REQUESTED_BACKUP"
+
+    # Copy files to profile backup directory
+    cp -rT "$SRC_DIR" "$REQUESTED_BACKUP"
+
+    echo "Successfully downloaded and extracted save to profile '$PROFILE'."
+
+    # Call main script logic to perform the swap and activate the profile
+    exec "$0" "$GAME" "$PROFILE" "$TARGET_DIR" --notify
+fi
+
+# ── COMMAND: list ─────────────────────────────────────────────────────────
+if [[ "${1:-}" == "list" ]]; then
+    GAME="${2:-}"
+    if [[ -n "$GAME" ]]; then
+        # List profiles for specific game
+        ROW=$(sqlite3 "$DB_PATH" "SELECT active_profile, path FROM state WHERE game='$GAME';")
+        if [[ -z "$ROW" ]]; then
+            echo "Game '$GAME' is not currently tracked in saveswap."
+            exit 0
+        fi
+        ACTIVE=$(echo "$ROW" | cut -d'|' -f1)
+        G_PATH=$(echo "$ROW" | cut -d'|' -f2)
+        
+        echo "Game: $GAME"
+        echo "  * $ACTIVE (Active)"
+        
+        # Look for backup folders on disk
+        if [[ -n "$G_PATH" && -d "$(dirname "$G_PATH")" ]]; then
+            PARENT_DIR=$(dirname "$G_PATH")
+            BASE_NAME=$(basename "$G_PATH")
+            for d in "$PARENT_DIR/${BASE_NAME}."*; do
+                if [[ -d "$d" ]]; then
+                    BACKUP_PROFILE="${d##*.}"
+                    echo "  - $BACKUP_PROFILE (Backup)"
+                fi
+            done
+        fi
+    else
+        # List all games
+        echo "Tracked games:"
+        sqlite3 "$DB_PATH" "SELECT game, active_profile, path FROM state;" | while read -r line; do
+            IFS='|' read -r g active p <<< "$line"
+            echo "  * $g -> Active: $active (Path: $p)"
+        done
+    fi
+    exit 0
+fi
+
+# ── COMMAND: swap ─────────────────────────────────────────────────────────
+GAME=""
+PROFILE=""
+TARGET_DIR=""
+DRY_RUN=0
+NOTIFY=0
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run|-n)
+            DRY_RUN=1
+            shift
+            ;;
+        --notify)
+            NOTIFY=1
+            shift
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+        *)
+            if [[ -z "$GAME" ]]; then
+                GAME="$1"
+            elif [[ -z "$PROFILE" ]]; then
+                PROFILE="$1"
+            elif [[ -z "$TARGET_DIR" ]]; then
+                TARGET_DIR="$1"
+            else
+                echo "Unexpected argument: $1" >&2
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$GAME" || -z "$PROFILE" || -z "$TARGET_DIR" ]]; then
+    usage
+fi
+
+# Normalize paths
+TARGET_DIR="${TARGET_DIR%/}"
+APPDATA_DIR=$(dirname "$TARGET_DIR")
+
+# Get currently active profile from database
+CURRENT_ACTIVE=$(sqlite3 "$DB_PATH" "SELECT active_profile FROM state WHERE game='$GAME';")
+
+# Auto-detect current profile on first run
+if [[ -z "$CURRENT_ACTIVE" ]]; then
+    if [[ "$GAME" == "balatro" ]]; then
+        if [[ -d "$TARGET_DIR/Mods" ]]; then
+            CURRENT_ACTIVE="modded"
+        else
+            CURRENT_ACTIVE="clean"
+        fi
+    else
+        # For general games, assume the active folder represents the opposite of what they request
+        if [[ "$PROFILE" == "clean" ]]; then
+            CURRENT_ACTIVE="modded"
+        else
+            CURRENT_ACTIVE="clean"
+        fi
+    fi
+    if [[ "$DRY_RUN" -eq 0 ]]; then
+        sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO state (game, active_profile, path) VALUES ('$GAME', '$CURRENT_ACTIVE', '$TARGET_DIR');"
+    fi
+fi
+
+if [[ "$CURRENT_ACTIVE" == "$PROFILE" ]]; then
+    echo "Game '$GAME': Profile '$PROFILE' is already active."
+    exit 0
+fi
+
+CURRENT_BACKUP="${TARGET_DIR}.${CURRENT_ACTIVE}"
+REQUESTED_BACKUP="${TARGET_DIR}.${PROFILE}"
+
+# Collision Protection
+if [[ -e "$CURRENT_BACKUP" ]]; then
+    echo "CRITICAL ERROR: Backup target '$CURRENT_BACKUP' already exists!" >&2
+    echo "To prevent overwriting save files, saveswap has aborted." >&2
+    echo "Please inspect and resolve the collision manually." >&2
+    exit 2
+fi
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "[DRY-RUN] Game '$GAME': Would switch profile from '$CURRENT_ACTIVE' to '$PROFILE'"
+    if [[ -d "$TARGET_DIR" ]]; then
+        echo "[DRY-RUN] Would rename current directory: '$TARGET_DIR' -> '$CURRENT_BACKUP'"
+    fi
+    if [[ -d "$REQUESTED_BACKUP" ]]; then
+        echo "[DRY-RUN] Would restore backup directory: '$REQUESTED_BACKUP' -> '$TARGET_DIR'"
+    else
+        echo "[DRY-RUN] Backup '$REQUESTED_BACKUP' not found. Would create fresh empty directory: '$TARGET_DIR'"
+    fi
+    echo "[DRY-RUN] Would update database: game='$GAME', active_profile='$PROFILE', path='$TARGET_DIR'"
+    exit 0
+fi
+
+# Log execution
+echo "[$(date)] Executing saveswap for $GAME ($CURRENT_ACTIVE -> $PROFILE) on path: $TARGET_DIR" >> /tmp/saveswap.log
+
+echo "Game '$GAME': Switching profile from '$CURRENT_ACTIVE' to '$PROFILE'..."
+
+# Ensure parent directory exists
+mkdir -p "$APPDATA_DIR"
+
+# Rename current directory to backup
+if [[ -d "$TARGET_DIR" ]]; then
+    mv "$TARGET_DIR" "$CURRENT_BACKUP"
+fi
+
+# Restore requested profile
+if [[ -d "$REQUESTED_BACKUP" ]]; then
+    mv "$REQUESTED_BACKUP" "$TARGET_DIR"
+else
+    # Create fresh profile directory
+    mkdir -p "$TARGET_DIR"
+fi
+
+# Update database to new active profile and path
+sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO state (game, active_profile, path) VALUES ('$GAME', '$PROFILE', '$TARGET_DIR');"
+echo "Game '$GAME': Profile successfully switched to '$PROFILE'."
+
+# Send Desktop Notification if requested
+if [[ "$NOTIFY" -eq 1 ]] && command -v notify-send >/dev/null; then
+    # Try to resolve a nice game/profile specific icon from Lutris assets
+    ICON="input-gaming"
+    ICON_DIR="/home/caesar/.local/share/icons/hicolor/128x128/apps"
+    SPECIFIC_ICON="$ICON_DIR/lutris_${GAME}-${PROFILE}.png"
+    GENERIC_ICON="$ICON_DIR/lutris_${GAME}.png"
+
+    if [[ -f "$SPECIFIC_ICON" ]]; then
+        ICON="$SPECIFIC_ICON"
+    elif [[ -f "$GENERIC_ICON" ]]; then
+        ICON="$GENERIC_ICON"
+    fi
+
+    # Capitalize the profile and game names for a premium look
+    DISPLAY_GAME="$(echo "${GAME:0:1}" | tr '[:lower:]' '[:upper:]')${GAME:1}"
+    DISPLAY_PROFILE="$(echo "${PROFILE:0:1}" | tr '[:lower:]' '[:upper:]')${PROFILE:1}"
+
+    notify-send -t 3000 -a "saveswap" -i "$ICON" "saveswap: $DISPLAY_GAME" "Switched to profile '$DISPLAY_PROFILE'" || true
+fi

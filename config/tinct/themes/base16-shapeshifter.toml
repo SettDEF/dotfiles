@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Shapeshifter"
+dark = false
+derived = true
+
+[colors]
+grey1 = "#f9f9f9"
+grey2 = "#e0e0e0"
+grey3 = "#ababab"
+grey4 = "#555555"
+grey5 = "#343434"
+grey6 = "#102015"
+grey7 = "#040404"
+grey8 = "#000000"
+red1 = "#e92f2f"
+orange1 = "#e09448"
+yellow1 = "#dddd13"
+green1 = "#0ed839"
+cyan1 = "#23edda"
+blue1 = "#3b48e3"
+purple1 = "#f996e2"
+yellow2 = "#69542d"
+
+[roles]
+background = "#f9f9f9"
+foreground = "#000000"
+primary = "#3b48e3"

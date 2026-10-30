@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly system-config snapshot (gated on AC + Nuke-9100 mount)
+
+[Timer]
+# Sunday 03:00. Persistent=true means a missed run (laptop asleep / unplugged)
+# fires the next time conditions are met instead of being skipped silently.
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=15min
+Unit=backup-config.service
+
+[Install]
+WantedBy=timers.target

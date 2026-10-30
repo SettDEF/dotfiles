@@ -1,0 +1,14 @@
+[Unit]
+Description=Dotos: reminders and extension sources
+After=graphical-session.target
+
+[Service]
+ExecStart=/home/caesar/.local/bin/dotos serve
+Restart=on-failure
+RestartSec=30
+Nice=10
+# quiet: a sync is never urgent
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

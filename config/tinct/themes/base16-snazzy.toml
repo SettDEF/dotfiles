@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Snazzy"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#282a36"
+grey2 = "#34353e"
+grey3 = "#43454f"
+grey4 = "#78787e"
+grey5 = "#a5a5a9"
+grey6 = "#e2e4e5"
+grey7 = "#eff0eb"
+grey8 = "#f1f1f0"
+red1 = "#ff5c57"
+orange1 = "#ff9f43"
+yellow1 = "#f3f99d"
+green1 = "#5af78e"
+cyan1 = "#9aedfe"
+blue1 = "#57c7ff"
+purple1 = "#ff6ac1"
+orange2 = "#b2643c"
+
+[roles]
+background = "#282a36"
+foreground = "#f1f1f0"
+primary = "#ff6ac1"

@@ -1,0 +1,161 @@
+/* ==UserStyle==
+@name           tinct Material You - Google Drive
+@namespace      tinct-quickshell
+@version        1.0.1
+@description    Material You theme for Google Drive (drive.google.com) driven by tinct. Maps Google's Material 3 tokens to tinct's --m3-* palette.
+@author         caesar
+@updateURL      http://localhost:8787/drive.user.css
+==/UserStyle== */
+
+/* --- Google Drive: Material 3 tokens --- */
+@-moz-document domain("drive.google.com") {
+    :root, html, body {
+        --gm3-sys-color--surface: var(--m3-surface) !important;
+        --gm3-sys-color--surface-dim: var(--m3-surface-dim) !important;
+        --gm3-sys-color--surface-bright: var(--m3-surface-bright) !important;
+        --gm3-sys-color--surface-container-lowest: var(--m3-surface-container-lowest) !important;
+        --gm3-sys-color--surface-container-low: var(--m3-surface-container-low) !important;
+        --gm3-sys-color--surface-container: var(--m3-surface-container) !important;
+        --gm3-sys-color--surface-container-high: var(--m3-surface-container-high) !important;
+        --gm3-sys-color--surface-container-highest: var(--m3-surface-container-highest) !important;
+        --gm3-sys-color--on-surface: var(--m3-text) !important;
+        --gm3-sys-color--on-surface-variant: var(--m3-text-variant) !important;
+        --gm3-sys-color--inverse-surface: var(--m3-inverse-surface) !important;
+        --gm3-sys-color--inverse-on-surface: var(--m3-inverse-on-surface) !important;
+        --gm3-sys-color--outline: var(--m3-outline) !important;
+        --gm3-sys-color--outline-variant: var(--m3-outline-variant) !important;
+        --gm3-sys-color--primary: var(--m3-primary) !important;
+        --gm3-sys-color--on-primary: var(--m3-on-primary) !important;
+        --gm3-sys-color--primary-container: var(--m3-primary-container) !important;
+        --gm3-sys-color--on-primary-container: var(--m3-on-primary-container) !important;
+        --gm3-sys-color--secondary: var(--m3-secondary) !important;
+        --gm3-sys-color--on-secondary: var(--m3-on-secondary) !important;
+        --gm3-sys-color--secondary-container: var(--m3-secondary-container) !important;
+        --gm3-sys-color--on-secondary-container: var(--m3-on-secondary-container) !important;
+        --gm3-sys-color--tertiary: var(--m3-tertiary) !important;
+        --gm3-sys-color--tertiary-container: var(--m3-tertiary-container) !important;
+        --gm3-sys-color--on-tertiary-container: var(--m3-on-tertiary-container) !important;
+        --gm3-sys-color--error: var(--m3-error) !important;
+        --gm3-sys-color--on-error: var(--m3-on-error) !important;
+
+        /* MDC (Material Design Components) theme tokens */
+        --mdc-theme-primary: var(--m3-primary) !important;
+        --mdc-theme-on-primary: var(--m3-on-primary) !important;
+        --mdc-theme-secondary: var(--m3-secondary) !important;
+        --mdc-theme-on-secondary: var(--m3-on-secondary) !important;
+        --mdc-theme-surface: var(--m3-surface) !important;
+        --mdc-theme-on-surface: var(--m3-text) !important;
+        --mdc-theme-background: var(--m3-surface) !important;
+        --mdc-theme-on-background: var(--m3-text) !important;
+        --mdc-theme-error: var(--m3-error) !important;
+        --mdc-theme-on-error: var(--m3-on-error) !important;
+    }
+
+    /* Main background */
+    body, .a-b-f-i, .a-b-f-i-Yb, .drive-view, .docs-homescreen {
+        background-color: var(--m3-surface) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Top app bar */
+    .a-b-f-i-Yb, header[role="banner"], .gb_ua, .gb_va, .gb_8d {
+        background-color: var(--m3-surface-container) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Sidebar / navigation drawer */
+    .a-b-f-i, .w-Sb, .w-Tb, nav[role="navigation"], .gb_qc {
+        background-color: var(--m3-surface-container-low) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Selected nav item */
+    .w-Sb .selected, .w-Sb [aria-selected="true"], .w-Sb .w-Tb-selected {
+        background-color: var(--m3-secondary-container) !important;
+        color: var(--m3-on-secondary-container) !important;
+    }
+
+    /* File list / grid */
+    .a-b-f-i .a-b-f-i, .doclist, .doclist-view, [role="grid"], [role="row"] {
+        background-color: var(--m3-surface) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Hovered file */
+    [role="row"]:hover, .doclist-item:hover, .a-b-f-i:hover {
+        background-color: var(--m3-surface-container-high) !important;
+    }
+
+    /* Selected file */
+    [role="row"][aria-selected="true"], .doclist-item.selected {
+        background-color: var(--m3-secondary-container) !important;
+    }
+
+    /* Search bar */
+    .gb_jf, .gb_if, input[aria-label*="Search"], .a-b-f-i-Yb input {
+        background-color: var(--m3-surface-container-high) !important;
+        color: var(--m3-text) !important;
+        border-color: var(--m3-outline-variant) !important;
+    }
+
+    /* Buttons */
+    button, .a-b-f-i button, [role="button"] {
+        color: var(--m3-text) !important;
+    }
+
+    /* Primary action button (New) */
+    .a-b-f-i-Yb button[aria-label*="New"], .a-b-f-i-Yb [role="button"]:first-child {
+        background-color: var(--m3-primary-container) !important;
+        color: var(--m3-on-primary-container) !important;
+        border-radius: 16px !important;
+    }
+
+    /* Cards / panels */
+    .a-b-f-i, .w-Sb, .a-b-f-i-Yb {
+        border-color: var(--m3-outline-variant) !important;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--m3-surface) !important; }
+    ::-webkit-scrollbar-thumb { background: var(--m3-outline-variant) !important; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--m3-outline) !important; }
+
+    /* Links */
+    a { color: var(--m3-primary) !important; }
+
+    /* Dividers */
+    hr, .a-b-f-i hr { border-color: var(--m3-outline-variant) !important; }
+}
+
+/* --- Google Drive: preview / viewer --- */
+@-moz-document domain("drive.google.com") {
+    /* File preview modal */
+    .a-b-f-i-Yb, .docs-viewer, .docs-texteventtarget-iframe {
+        background-color: var(--m3-surface-container-low) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Context menus */
+    .goog-menu, .goog-menuitem, [role="menu"], [role="menuitem"] {
+        background-color: var(--m3-surface-container) !important;
+        color: var(--m3-text) !important;
+    }
+
+    .goog-menuitem:hover, [role="menuitem"]:hover {
+        background-color: var(--m3-surface-container-high) !important;
+    }
+
+    /* Dialogs / modals */
+    .modal-dialog, [role="dialog"], .a-b-f-i-Yb .modal {
+        background-color: var(--m3-surface-container) !important;
+        color: var(--m3-text) !important;
+        border-color: var(--m3-outline-variant) !important;
+    }
+
+    /* Toasts / notifications */
+    .a-b-f-i-Yb .notification, [role="alert"] {
+        background-color: var(--m3-secondary-container) !important;
+        color: var(--m3-on-secondary-container) !important;
+    }
+}

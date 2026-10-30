@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Moonlight"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#212337"
+grey2 = "#1b1e2b"
+grey3 = "#e4f3fa"
+blue1 = "#757dac"
+blue2 = "#7486d6"
+purple1 = "#403c64"
+blue3 = "#414863"
+blue4 = "#596399"
+red1 = "#ff757f"
+red2 = "#f67f81"
+orange1 = "#ffc777"
+green1 = "#2df4c0"
+cyan1 = "#04d1f9"
+purple2 = "#b4a4f4"
+purple3 = "#ecb2f0"
+purple4 = "#b994f1"
+
+[roles]
+background = "#212337"
+foreground = "#e4f3fa"
+primary = "#ff757f"

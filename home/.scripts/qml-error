@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Show why a QML file fails to load, when Qt refuses to tell you.
+#
+# WHY THIS EXISTS
+#   In this environment QML's console output never reaches stdout. A component
+#   that fails to load reports exactly one line — "qml: Did not load any objects,
+#   exiting." — with no file, no line number and no reason. qmlformat parses the
+#   file happily, because the file is syntactically valid; it is the *type
+#   checking* that fails at instantiation.
+#
+#   Qt.createComponent().errorString() holds the real message. So this loads the
+#   target inside a throwaway QML harness, draws the error into an image, and
+#   reads it back with OCR-free certainty by just showing you the PNG path.
+#
+#   Written 2026-09-17 after an hour of bisecting a file whose only fault was
+#   `font.pixelSize: 13.5` — pixelSize is an int, and assigning a real silently
+#   kills the entire component with no message naming the property.
+#
+#   Try `qmllint` first; it catches most things and is faster. This is for when
+#   qmllint reports nothing and the file still will not load.
+#
+# RUNS HEADLESS. No window appears on your session, so it is safe while gaming.
+#
+# Usage:  qml-error <file.qml> [-k]
+#         -k   keep the PNG instead of printing and deleting it
+#
+# Example:  qml-error ~/projects/vantage/ui/panels/CountryCard.qml
+
+set -euo pipefail
+
+usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; $d'; exit "${1:-0}"; }
+
+[[ $# -ge 1 ]] || usage 1
+[[ "$1" == "-h" || "$1" == "--help" ]] && usage 0
+
+target="$(realpath -- "$1")"
+keep="${2:-}"
+[[ -f "$target" ]] || { echo "qml-error: no such file: $1" >&2; exit 2; }
+command -v qml6 >/dev/null || { echo "qml-error: qml6 not found (install qt6-declarative)" >&2; exit 3; }
+
+work="$(mktemp -d)"
+out="$work/error.png"
+# Only the harness is cleaned up; the PNG is moved out first when -k is given.
+trap 'rm -rf "$work"' EXIT
+
+cat > "$work/probe.qml" <<QML
+import QtQuick
+import QtQuick.Window
+
+Window {
+    width: 1400; height: 300; visible: true; color: "#ffffff"
+    property string msg: "(no result)"
+    Rectangle {
+        id: stage
+        anchors.fill: parent
+        color: "#ffffff"
+        Text {
+            anchors { fill: parent; margins: 14 }
+            text: msg
+            color: "#000000"
+            font { pixelSize: 13; family: "monospace" }
+            wrapMode: Text.Wrap
+        }
+    }
+    Component.onCompleted: {
+        var c = Qt.createComponent("file://${target}");
+        msg = (c.status === Component.Error)
+            ? c.errorString()
+            : "No error: component status " + c.status + " (it loads fine on its own).";
+    }
+    Timer { interval: 900; running: true
+        onTriggered: stage.grabToImage(function (r) { r.saveToFile("${out}"); fin.start(); }) }
+    Timer { id: fin; interval: 600; onTriggered: Qt.exit(0) }
+    Timer { interval: 12000; running: true; onTriggered: Qt.exit(3) }
+}
+QML
+
+# No route to the compositor, software rendering: cannot steal focus, cannot
+# contend for the GPU.
+env -u WAYLAND_DISPLAY -u DISPLAY \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software LIBGL_ALWAYS_SOFTWARE=1 \
+    timeout 25 qml6 "$work/probe.qml" >/dev/null 2>&1 || true
+
+[[ -f "$out" ]] || { echo "qml-error: the probe itself failed to render" >&2; exit 4; }
+
+if [[ "$keep" == "-k" ]]; then
+    dest="${TMPDIR:-/tmp}/qml-error-$(basename "${target%.qml}").png"
+    cp -- "$out" "$dest"
+    echo "$dest"
+else
+    dest="${TMPDIR:-/tmp}/qml-error.png"
+    cp -- "$out" "$dest"
+    echo "Error image: $dest"
+    echo "(open it, or re-run with -k to keep a per-file copy)"
+fi

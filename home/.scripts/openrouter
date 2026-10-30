@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+# openrouter — browse and compare OpenRouter's catalogue in the terminal.
+#
+# Why this exists: the OpenRouter website is the practical place to
+# compare model prices across providers, but it's a web UI. This is
+# the same question answered in a shell: an fzf picker over every
+# model, with filter flags, a details pane, provider breakdowns, and
+# a side-by-side compare mode.
+#
+# Caches /api/v1/models at $XDG_CACHE_HOME/openrouter-models.json for
+# an hour. --refresh forces a re-pull.
+#
+# Usage:
+#   openrouter                 browse all models, cheapest first
+#   openrouter -s KEY          sort: name | prompt | completion | ctx | newest
+#   openrouter -f PATTERN      pre-filter by id substring (claude, llama, …)
+#   openrouter --free          only models with $0 input and output
+#   openrouter --vision        only models with image modality
+#   openrouter --tools         only models that support tool/function calling
+#   openrouter --reasoning     only models that expose reasoning params
+#   openrouter -p MODEL_ID     providers for one model (price per endpoint)
+#   openrouter -c ID1 ID2 …    compare two or more models side by side
+#   openrouter --json          on select, print the model's full JSON (not just id)
+#   openrouter --refresh       drop the cache and re-fetch
+#   openrouter --raw           dump the raw cached JSON to stdout and exit
+#   openrouter -h              this help
+#
+# TUI keys:
+#   Enter       print the selected model's id (or JSON with --json)
+#   Ctrl-O      open the model's page on openrouter.ai
+#   Ctrl-Y      yank the model id to clipboard
+#   Ctrl-P      show provider breakdown for the highlighted model
+#
+# Examples:
+#   openrouter -f anthropic -s prompt
+#   openrouter --free --tools
+#   openrouter -c anthropic/claude-sonnet-5.5 openai/gpt-5 google/gemini-3
+#   id=$(openrouter -f gpt); echo "picked $id"
+#
+# Needs: curl, jq, fzf, column. Clipboard uses wl-copy or xclip.
+
+set -euo pipefail
+
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}"
+CACHE="$CACHE_DIR/openrouter-models.json"
+MAX_AGE=3600
+API=https://openrouter.ai/api/v1/models
+
+SORT=prompt
+FILTER=
+REFRESH=0
+RAW=0
+JSON=0
+FREE=0
+VISION=0
+TOOLS=0
+REASONING=0
+PROVIDERS_FOR=
+COMPARE=()
+
+while (( $# )); do
+    case "$1" in
+        -h|--help) sed -n '2,/^$/{s/^# \?//;p}' "$0"; exit 0 ;;
+        -s|--sort) SORT="${2:?missing sort key}"; shift 2 ;;
+        -f|--filter) FILTER="${2:?missing filter}"; shift 2 ;;
+        --free) FREE=1; shift ;;
+        --vision) VISION=1; shift ;;
+        --tools) TOOLS=1; shift ;;
+        --reasoning) REASONING=1; shift ;;
+        -p|--providers) PROVIDERS_FOR="${2:?missing model id}"; shift 2 ;;
+        -c|--compare) shift; while (( $# )) && [[ "$1" != -* ]]; do COMPARE+=("$1"); shift; done ;;
+        --json) JSON=1; shift ;;
+        --refresh) REFRESH=1; shift ;;
+        --raw) RAW=1; shift ;;
+        *) echo "openrouter: unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+for dep in curl jq fzf column; do
+    command -v "$dep" >/dev/null || { echo "openrouter: missing $dep" >&2; exit 2; }
+done
+
+mkdir -p "$CACHE_DIR"
+
+refresh_cache() {
+    curl -fsSL "$API" >"$CACHE".tmp
+    jq -e '.data | type == "array"' <"$CACHE".tmp >/dev/null \
+        || { echo "openrouter: API returned unexpected shape" >&2; rm -f "$CACHE".tmp; exit 1; }
+    mv "$CACHE".tmp "$CACHE"
+}
+
+if (( REFRESH )) || [[ ! -s "$CACHE" ]] || (( $(date +%s) - $(stat -c %Y "$CACHE") > MAX_AGE )); then
+    refresh_cache
+fi
+
+if (( RAW )); then cat "$CACHE"; exit 0; fi
+
+# ----- provider breakdown for one model -----
+if [[ -n "$PROVIDERS_FOR" ]]; then
+    # The slash in author/slug is a path separator, not a payload char.
+    curl -fsSL "https://openrouter.ai/api/v1/models/$PROVIDERS_FOR/endpoints" \
+        | jq -r '
+            .data.endpoints // [] |
+            sort_by((.pricing.prompt // "0") | tonumber) |
+            (["PROVIDER","CTX","$/M in","$/M out","QUANT","STATUS"]),
+            (.[] | [
+                (.provider_name // "-"),
+                ((.context_length // 0) | tostring),
+                (((.pricing.prompt     // "0") | tonumber * 1000000 * 100 | floor / 100) | tostring),
+                (((.pricing.completion // "0") | tonumber * 1000000 * 100 | floor / 100) | tostring),
+                (.quantization // "-"),
+                (if (.status // 0) == 0 then "ok" else "degraded" end)
+            ]) | @tsv' \
+        | column -t -s $'\t'
+    exit 0
+fi
+
+# ----- compare mode -----
+if (( ${#COMPARE[@]} )); then
+    for id in "${COMPARE[@]}"; do
+        jq -r --arg id "$id" '
+            .data[] | select(.id == $id) |
+            [
+                .id,
+                (.name // "-"),
+                ((.context_length // 0) | tostring),
+                (((.pricing.prompt     // "0") | tonumber * 1000000 * 100 | floor / 100) | tostring),
+                (((.pricing.completion // "0") | tonumber * 1000000 * 100 | floor / 100) | tostring),
+                ((.supported_parameters // []) | join(","))
+            ] | @tsv' "$CACHE"
+    done | (
+        printf 'ID\tNAME\tCTX\t$/M in\t$/M out\tPARAMS\n'
+        cat
+    ) | column -t -s $'\t'
+    exit 0
+fi
+
+# ----- normal mode: fzf picker -----
+
+case "$SORT" in
+    name)       SORTEXPR='.name // .id' ;;
+    prompt)     SORTEXPR='(.pricing.prompt     // "0") | tonumber' ;;
+    completion) SORTEXPR='(.pricing.completion // "0") | tonumber' ;;
+    ctx)        SORTEXPR='-(.context_length // 0)' ;;
+    newest)     SORTEXPR='-(.created // 0)' ;;
+    *) echo "openrouter: unknown sort key: $SORT" >&2; exit 2 ;;
+esac
+
+FILTEREXPR='true'
+if [[ -n "$FILTER" ]]; then
+    FILTEREXPR=".id | ascii_downcase | contains(\"$(printf '%s' "$FILTER" | tr '[:upper:]' '[:lower:]')\")"
+fi
+
+FREEEXPR='true'
+(( FREE )) && FREEEXPR='((.pricing.prompt // "0") | tonumber) == 0 and ((.pricing.completion // "0") | tonumber) == 0'
+
+VISIONEXPR='true'
+(( VISION )) && VISIONEXPR='((.architecture.input_modalities // [.architecture.modality // ""]) | map(ascii_downcase) | any(. == "image"))'
+
+TOOLSEXPR='true'
+(( TOOLS )) && TOOLSEXPR='((.supported_parameters // []) | any(. == "tools" or . == "tool_choice"))'
+
+REASONINGEXPR='true'
+(( REASONING )) && REASONINGEXPR='((.supported_parameters // []) | any(. == "reasoning" or . == "include_reasoning"))'
+
+LIST=$(jq -r "
+    .data
+    | map(select($FILTEREXPR and $FREEEXPR and $VISIONEXPR and $TOOLSEXPR and $REASONINGEXPR))
+    | sort_by($SORTEXPR)
+    | .[]
+    | [
+        .id,
+        ((.context_length // 0) | tostring),
+        (((.pricing.prompt     // \"0\") | tonumber * 1000000 * 100 | floor / 100) | tostring),
+        (((.pricing.completion // \"0\") | tonumber * 1000000 * 100 | floor / 100) | tostring)
+      ]
+    | @tsv
+" "$CACHE")
+
+if [[ -z "$LIST" ]]; then
+    echo "openrouter: no models matched the filters" >&2
+    exit 1
+fi
+
+HEADER=$'ID\tCTX\t$/M in\t$/M out'
+TABLE=$(printf '%s\n%s\n' "$HEADER" "$LIST" | column -t -s $'\t')
+
+export PREVIEW_CACHE="$CACHE"
+
+preview() {
+    local id="${1%% *}"
+    [[ "$id" == "ID" ]] && return 0
+    jq -r --arg id "$id" '
+        .data[] | select(.id == $id) |
+        "ID         : \(.id)",
+        "Name       : \(.name // "-")",
+        "Context    : \((.context_length // 0))",
+        "Pricing    : $\((.pricing.prompt // "0" | tonumber) * 1000000) / M input",
+        "           : $\((.pricing.completion // "0" | tonumber) * 1000000) / M output",
+        (if .pricing.input_cache_read then "           : $\((.pricing.input_cache_read | tonumber) * 1000000) / M cached read" else empty end),
+        (if .pricing.image then "           : $\((.pricing.image | tonumber) * 1000) / 1k images" else empty end),
+        "Provider   : \((.top_provider.name // "-"))",
+        "Modality   : \((.architecture.modality // "-"))",
+        "Input mods : \((.architecture.input_modalities // []) | join(", "))",
+        "Params     : \((.supported_parameters // []) | join(", "))",
+        (if .knowledge_cutoff then "Cutoff     : \(.knowledge_cutoff)" else empty end),
+        "",
+        "\(.description // "")"
+    ' "$PREVIEW_CACHE"
+}
+export -f preview
+
+yank_cmd() {
+    if command -v wl-copy >/dev/null; then echo "wl-copy"
+    elif command -v xclip >/dev/null;    then echo "xclip -selection clipboard"
+    else echo "cat >/dev/null"
+    fi
+}
+YANKER=$(yank_cmd)
+export YANKER
+
+SELECTED=$(printf '%s\n' "$TABLE" | fzf \
+    --header-lines=1 \
+    --header='enter=select  ^O=open-web  ^Y=yank-id  ^P=providers' \
+    --prompt="openrouter> " \
+    --preview 'bash -c "preview {}"' \
+    --preview-window='right:60%:wrap' \
+    --bind='ctrl-o:execute-silent(echo {} | awk "{print \$1}" | xargs -I@ xdg-open "https://openrouter.ai/models/@" >/dev/null 2>&1)' \
+    --bind="ctrl-y:execute-silent(echo {} | awk '{print \$1}' | $YANKER)" \
+    --bind='ctrl-p:execute(id=$(echo {} | awk "{print \$1}"); clear; echo "providers for $id"; echo; '"$0"' -p "$id"; echo; read -n 1 -p "any key to return")' \
+    --no-mouse \
+    --layout=reverse \
+    || true)
+
+[[ -z "$SELECTED" ]] && exit 0
+ID="${SELECTED%% *}"
+
+if (( JSON )); then
+    jq --arg id "$ID" '.data[] | select(.id == $id)' "$CACHE"
+else
+    printf '%s\n' "$ID"
+fi

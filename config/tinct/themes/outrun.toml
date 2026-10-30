@@ -1,0 +1,22 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Outrun"
+dark = true
+derived = true
+
+[colors]
+purple1 = "#0d0221"
+blue1 = "#0c0738"
+blue2 = "#190a4f"
+purple2 = "#261447"
+purple3 = "#541388"
+red1 = "#ff206e"
+yellow1 = "#fbff12"
+cyan1 = "#41ead4"
+red2 = "#ff4365"
+red3 = "#ff8552"
+yellow2 = "#ffd23f"
+
+[roles]
+background = "#0d0221"
+foreground = "#fbff12"
+primary = "#ff206e"

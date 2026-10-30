@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Put the pointer at a LOGICAL screen coordinate and prove it landed there.
+#
+# WHY THIS EXISTS
+# qs-check only lints and reload-tests. Anything that only exists under a live
+# pointer -- a HoverHandler firing, a row expanding, a numeral appearing -- is
+# invisible to it: every broken version of Workspaces.qml passed both stages.
+# So the only real check is to hover and look.
+#
+# But `ydotool mousemove --absolute` is NOT in logical coordinates. With mouse
+# acceleration on (hyprctl getoption input:force_no_accel -> false) it lands at
+# roughly 2x the requested position, so hover screenshots silently capture an
+# un-hovered surface and read as a pass. This calibrates against the compositor
+# instead of assuming a ratio, then verifies the result.
+#
+#   qs-hover <logical-x> <logical-y> [outfile.png] [grim-geometry]
+set -uo pipefail
+TX=${1:?usage: qs-hover <x> <y> [out.png] [geom]}
+TY=${2:?usage: qs-hover <x> <y> [out.png] [geom]}
+OUT=${3:-}
+GEOM=${4:-}
+
+pos() { hyprctl cursorpos 2>/dev/null | tr -d ' '; }
+
+# Absolute moves are linear (acceleration just scales them); relative moves are
+# not, which is why stepping toward a target drifted and never converged. So:
+# probe twice, solve logical = a*abs + b, invert for the abs that lands on the
+# target. Recalibrated from scratch on every attempt — a partial refit using one
+# fresh sample and one stale one corrupts the fit and sends the pointer wild.
+solve() { awk -v v1="$1" -v v2="$2" -v a1="$3" -v a2="$4" -v t="$5" \
+    'BEGIN{ a=(v2-v1)/(a2-a1); if(a==0){print a1; exit} b=v1-a*a1; printf "%d",(t-b)/a }'; }
+
+aim() {
+    ydotool mousemove --absolute -x 200 -y 100 2>/dev/null; sleep 0.4
+    local p1=$(pos) x1 y1 x2 y2 ax ay
+    x1=${p1%,*}; y1=${p1#*,}
+    ydotool mousemove --absolute -x 400 -y 200 2>/dev/null; sleep 0.4
+    local p2=$(pos)
+    x2=${p2%,*}; y2=${p2#*,}
+    ax=$(solve "$x1" "$x2" 200 400 "$TX")
+    ay=$(solve "$y1" "$y2" 100 200 "$TY")
+    ydotool mousemove --absolute -x "$ax" -y "$ay" 2>/dev/null
+    sleep 0.4
+}
+
+for _ in 1 2 3; do
+    aim
+    cur=$(pos); cx=${cur%,*}; cy=${cur#*,}
+    ex=$(( TX - cx )); ey=$(( TY - cy ))
+    [ "${ex#-}" -le 1 ] && [ "${ey#-}" -le 1 ] && break
+done
+
+fin=$(pos); fx=${fin%,*}; fy=${fin#*,}
+off=$(awk -v a="$fx" -v b="$fy" -v c="$TX" -v d="$TY" \
+      'BEGIN{print int(sqrt((a-c)^2+(b-d)^2))}')
+printf 'target %s,%s  ->  actual %s,%s  (off by %spx)\n' "$TX" "$TY" "$fx" "$fy" "$off"
+[ "$off" -gt 4 ] && echo "WARNING: pointer did not reach the target — treat any screenshot as unhovered" >&2
+
+if [ -n "$OUT" ]; then
+    sleep 0.8   # let hover animations settle
+    grim ${GEOM:+-g "$GEOM"} "$OUT" && echo "captured -> $OUT"
+fi

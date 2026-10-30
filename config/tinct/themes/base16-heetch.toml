@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Heetch"
+dark = true
+derived = true
+
+[colors]
+purple1 = "#190134"
+purple2 = "#392551"
+purple3 = "#5a496e"
+purple4 = "#7b6d8b"
+grey1 = "#9c92a8"
+grey2 = "#bdb6c5"
+grey3 = "#dedae2"
+grey4 = "#feffff"
+cyan1 = "#27d9d5"
+cyan2 = "#5ba2b6"
+purple5 = "#8f6c97"
+red1 = "#c33678"
+red2 = "#f80059"
+red3 = "#bd0152"
+red4 = "#82034c"
+purple6 = "#470546"
+
+[roles]
+background = "#190134"
+foreground = "#feffff"
+primary = "#f80059"

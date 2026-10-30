@@ -1,0 +1,62 @@
+#!/bin/sh
+# ntfs3-remount — the nuke9100 NTFS drive from ntfs-3g (FUSE, a CPU core per download) to the kernel's ntfs3.
+#
+# Why: qBittorrent writing at 4 MB/s kept mount.ntfs-3g at ~85% of a core for hours, the CPU at
+# 83 C and the fans at 7400 rpm (2026-10-21). ntfs3 does the same in the kernel for a fraction.
+#
+# Usage: sudo ntfs3-remount          pauses the torrents saving there, remounts, fixes fstab, resumes
+#        sudo ntfs3-remount --back   the same, back to ntfs-3g
+set -eu
+
+MNT=/mnt/nuke9100
+DEV=/dev/disk/by-uuid/38C6CB58C6CB14D2
+OPTS=uid=1000,gid=1000,umask=022,noatime
+QB=http://127.0.0.1:8080/api/v2
+to=ntfs3
+[ "${1:-}" = "--back" ] && to=ntfs-3g
+
+[ "$(id -u)" = 0 ] || { echo "ntfs3-remount: run it with sudo"; exit 1; }
+cur=$(findmnt -n -o FSTYPE "$MNT" || true)
+case "$cur" in
+    fuseblk) cur=ntfs-3g ;;
+esac
+[ "$cur" = "$to" ] && { echo "ntfs3-remount: $MNT is on $to already"; exit 0; }
+
+# anything else using the drive: stop here, it would lose its files mid-write
+others=$(fuser -m "$MNT" 2>/dev/null | tr ' ' '\n' | grep -v '^$' | while read -r p; do
+    c=$(cat "/proc/${p%%[!0-9]*}/comm" 2>/dev/null || true)
+    [ "$c" = qbittorrent ] || echo "$c(${p%%[!0-9]*})"
+done | sort -u | tr '\n' ' ')
+[ -n "$others" ] && { echo "ntfs3-remount: still in use by: $others— close them first"; exit 1; }
+
+# the torrents saving there: paused now, resumed after
+hashes=$(curl -s -m 5 "$QB/torrents/info" | jq -r --arg m "$MNT" '.[] | select(.save_path | startswith($m)) | select(.state | test("stopped|paused") | not) | .hash' | paste -sd'|')
+if [ -n "$hashes" ]; then
+    curl -s -m 5 -d "hashes=$hashes" "$QB/torrents/stop" >/dev/null
+    echo "paused $(echo "$hashes" | tr '|' '\n' | wc -l) torrent(s)"
+    sleep 3
+fi
+resume() { [ -n "$hashes" ] && curl -s -m 5 -d "hashes=$hashes" "$QB/torrents/start" >/dev/null && echo "resumed them"; }
+
+sync
+umount "$MNT" || { echo "ntfs3-remount: could not unmount $MNT"; resume; exit 1; }
+if [ "$to" = ntfs3 ]; then
+    if ! mount -t ntfs3 -o "$OPTS,windows_names" "$DEV" "$MNT"; then
+        # a volume Windows left marked dirty: ntfs3 refuses it; back on ntfs-3g, nothing lost
+        echo "ntfs3-remount: ntfs3 refused the drive (run chkdsk on it from Windows); back on ntfs-3g"
+        mount -t ntfs-3g -o "$OPTS,windows_names" "$DEV" "$MNT"
+        resume
+        exit 1
+    fi
+else
+    mount -t ntfs-3g -o "$OPTS,windows_names" "$DEV" "$MNT"
+fi
+
+# fstab: the same line, the other driver (a copy of the old one next to it)
+cp /etc/fstab "/etc/fstab.bak-$(date +%Y%m%d-%H%M%S)"
+from=ntfs-3g; [ "$to" = ntfs-3g ] && from=ntfs3
+sed -i "s#^\(UUID=38C6CB58C6CB14D2[[:space:]]\+$MNT[[:space:]]\+\)$from\([[:space:]]\)#\1$to\2#" /etc/fstab
+grep "38C6CB58C6CB14D2" /etc/fstab
+
+resume
+echo "$MNT is on $(findmnt -n -o FSTYPE "$MNT")"

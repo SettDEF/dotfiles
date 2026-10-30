@@ -1,0 +1,7 @@
+[Unit]
+Description=Snapshot Zen's cookie database (see ~/.scripts/apps/browser/zen-cookies)
+
+[Service]
+Type=oneshot
+Nice=10
+ExecStart=%h/.scripts/apps/browser/zen-cookies backup

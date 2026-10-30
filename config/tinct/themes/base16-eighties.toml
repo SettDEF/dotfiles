@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Eighties"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2d2d2d"
+grey2 = "#393939"
+grey3 = "#515151"
+grey4 = "#747369"
+grey5 = "#a09f93"
+grey6 = "#d3d0c8"
+grey7 = "#e8e6df"
+grey8 = "#f2f0ec"
+red1 = "#f2777a"
+orange1 = "#f99157"
+yellow1 = "#ffcc66"
+green1 = "#99cc99"
+cyan1 = "#66cccc"
+blue1 = "#6699cc"
+purple1 = "#cc99cc"
+orange2 = "#d27b53"
+
+[roles]
+background = "#2d2d2d"
+foreground = "#f2f0ec"
+primary = "#f2777a"

@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Materia"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#263238"
+grey2 = "#2c393f"
+grey3 = "#37474f"
+grey4 = "#707880"
+grey5 = "#c9ccd3"
+grey6 = "#cdd3de"
+grey7 = "#d5dbe5"
+grey8 = "#ffffff"
+red1 = "#ec5f67"
+orange1 = "#ea9560"
+yellow1 = "#ffcc00"
+green1 = "#8bd649"
+cyan1 = "#80cbc4"
+cyan2 = "#89ddff"
+blue1 = "#82aaff"
+red2 = "#ec5f67"
+
+[roles]
+background = "#263238"
+foreground = "#ffffff"
+primary = "#8bd649"

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Old name; forwards to media (TASKS.md #59).
+exec "$HOME/.scripts/media" "$@"

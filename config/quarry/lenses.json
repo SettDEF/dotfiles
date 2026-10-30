@@ -1,0 +1,5 @@
+{
+    "enabledJson": "{\"steam-profile\":true,\"morse\":true,\"pornhub\":true,\"reddit\":true,\"slideshow\":false,\"tube\":true}",
+    "settingsJson": "{\"fourchan\":{\"adultBoardsOffered\":true,\"boards\":[\"3\",\"a\",\"g\",\"ic\",\"po\",\"s\",\"w\",\"wg\",\"wsg\"]},\"morse\":{\"autostart\":true,\"autostartReviewed\":true,\"folderId\":\"\",\"layout\":\"grid\",\"layouts\":{\"-1003604124852\":\"wall\",\"-1003973858564\":\"grid\",\"-1004305627282\":\"grid\",\"-1004337409943\":\"wall\",\"-1004459699325\":\"sheet\"},\"wallFilter\":\"photoAndVideo\",\"wallLayout\":\"small\",\"wallLayouts\":{\"-1003898451948\":\"small\"}},\"reddit\":{\"layout\":\"wall\",\"layouts\":{\"all\":\"wall\"},\"recent\":[\"gonewild\",\"blondgw\",\"u/pleasant_bend8613\",\"u/competitivehole2\",\"baddiegonewild\",\"blondiegonewild\",\"blondiegw\",\"baddiegw\"]}}",
+    "skinJson": "{\"fourchan\":\"quarry\"}"
+}

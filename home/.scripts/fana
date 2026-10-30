@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# Default interval (in seconds)
+interval=5
+
+# Colors for output
+RED="\033[1;31m"
+RESET="\033[0m"
+
+# Function to display help message
+show_help() {
+    echo "Usage: $0 [--interval <seconds>] [--help]"
+    echo "Control fan speed and monitor temperatures on IBM/Lenovo ThinkPads."
+    echo
+    echo "Options:"
+    echo "  --interval <seconds>  Set the monitoring interval (default: 5 seconds)"
+    echo "  --help               Display this help message"
+    echo
+    echo "Example: $0 --interval 10"
+    exit 0
+}
+
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+    echo "Error: This script must be run as root to control the fan."
+    exit 1
+fi
+
+# Check if fan control file exists
+if [[ ! -f /proc/acpi/ibm/fan ]]; then
+    echo "Error: Fan control file not found. This system may not support /proc/acpi/ibm/fan."
+    exit 1
+fi
+
+# Check if sensors is installed
+if ! command -v sensors >/dev/null 2>&1; then
+    echo "Error: sensors command not found. Please install lm-sensors."
+    exit 1
+fi
+
+# Process command-line arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --interval)
+            if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
+                echo "Error: --interval requires a positive integer."
+                exit 1
+            fi
+            interval="$2"
+            shift 2
+            ;;
+        --help)
+            show_help
+            ;;
+        *)
+            echo "Error: Unknown argument: $1"
+            echo "Run '$0 --help' for usage."
+            exit 1
+            ;;
+    esac
+done
+
+# Trap Ctrl+C for graceful exit
+trap 'echo -e "\nExiting..."; exit 0' INT
+
+# Main monitoring loop
+echo "Monitoring temperatures every ${interval} seconds (Ctrl+C to exit)"
+while true; do
+    # Set fan to full speed
+    sh -c "echo level full-speed > /proc/acpi/ibm/fan"
+    
+    # Get temperatures and time
+    temps=$(sensors | grep 'temp' | awk '{ print $2 }' | tr '\n' ' ')
+    current_time=$(date | awk '{ print $4 }')
+    
+    # Print to terminal with red temperatures
+    echo -e "${RED}${temps}${RESET} ${current_time}"
+    
+    # Sleep for the specified interval
+    sleep "$interval"
+done

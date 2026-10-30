@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Fruit Soda"
+dark = false
+derived = true
+
+[colors]
+grey1 = "#f1ecf1"
+grey2 = "#e0dee0"
+grey3 = "#d8d5d5"
+grey4 = "#b5b4b6"
+grey5 = "#979598"
+grey6 = "#515151"
+grey7 = "#474545"
+grey8 = "#2d2c2c"
+red1 = "#fe3e31"
+orange1 = "#fe6d08"
+yellow1 = "#f7e203"
+green1 = "#47f74c"
+blue1 = "#0f9cfd"
+blue2 = "#2931df"
+purple1 = "#611fce"
+orange2 = "#b16f40"
+
+[roles]
+background = "#f1ecf1"
+foreground = "#2d2c2c"
+primary = "#2931df"

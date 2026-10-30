@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Tube"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#231f20"
+blue1 = "#1c3f95"
+grey2 = "#5a5758"
+grey3 = "#737171"
+grey4 = "#959ca1"
+grey5 = "#d9d8d8"
+grey6 = "#e7e7e8"
+grey7 = "#ffffff"
+red1 = "#ee2e24"
+red2 = "#f386a1"
+yellow1 = "#ffd204"
+green1 = "#00853e"
+cyan1 = "#85cebc"
+blue2 = "#009ddc"
+red3 = "#98005d"
+orange1 = "#b06110"
+
+[roles]
+background = "#231f20"
+foreground = "#ffffff"
+primary = "#ee2e24"

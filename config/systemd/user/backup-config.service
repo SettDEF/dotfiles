@@ -1,0 +1,18 @@
+[Unit]
+Description=Snapshot system config to /mnt/nuke9100
+Documentation=man:systemd.service(5)
+# Two gates: must be on AC power AND the Nuke-9100 NVMe must be mounted.
+# If either fails the service silently no-ops (timer doesn't accumulate).
+ConditionACPower=true
+ConditionPathIsMountPoint=/mnt/nuke9100
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# --force lets the backup script proceed past its own Firefox-running guard.
+# --to overrides the default destination; --rotate 8 keeps disk usage bounded.
+ExecStart=%h/.scripts/backup --to /mnt/nuke9100/system-backups --rotate 8 --force
+# Don't restart on failure — let the next timer fire pick up next week.
+SuccessExitStatus=0

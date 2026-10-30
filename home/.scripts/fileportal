@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Super simple file-portal – all audio → small looped mpv, rest → default
+
+for FILE in "$@"; do
+    if [[ ! -f "$FILE" ]]; then
+        continue
+    fi
+
+    EXT="${FILE##*.}"
+    EXT=$(echo "$EXT" | tr '[:upper:]' '[:lower:]')
+
+    case "$EXT" in
+        wav|flac|aif|aiff|mp3|ogg|opus|m4a|aac|wave|aifc|caf|w64)
+            # All audio files → small looped mpv window
+            mpv --wayland-app-id=mpv-mini --loop-file=inf \
+                --keep-open=always \
+                --osd-font-size=40 \
+                --no-border \
+                --really-quiet \
+                --force-window \
+                "$FILE" &
+            ;;
+        *)
+            # Everything else → system default
+            xdg-open "$FILE" &
+            ;;
+    esac
+done

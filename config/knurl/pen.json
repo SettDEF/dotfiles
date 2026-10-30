@@ -1,0 +1,21 @@
+{
+  "button1": "click:right",
+  "button2": "click:middle",
+  "curve": [
+    [
+      0.1,
+      0.45
+    ],
+    [
+      0.45,
+      0.95
+    ]
+  ],
+  "eraser": "eraser",
+  "layer": false,
+  "max": 0.95,
+  "min": 0.02,
+  "palm": true,
+  "smoothing": 0.3,
+  "tilt": 1.0
+}

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# disk-space-watch - warn before btrfs runs out of room.
+# Why: on 2026-09-24 a full btrfs (1 MiB unallocated) made Zen discard its
+# cookie DB. Run every 15 min by disk-space-watch.timer; nags at most every 6h.
+set -u
+MIN_FREE_GIB=${MIN_FREE_GIB:-8}
+MIN_UNALLOC_GIB=${MIN_UNALLOC_GIB:-2}
+STATE=${XDG_RUNTIME_DIR:-/tmp}/disk-space-watch.last
+u=$(btrfs filesystem usage -b / 2>/dev/null) || exit 0
+free=$(awk '/Free \(estimated\)/{print int($3/1073741824)}' <<<"$u")
+unalloc=$(awk '/Device unallocated/{print int($3/1073741824)}' <<<"$u")
+meta=$(awk '/^Metadata,/{gsub(/[(%)]/,"",$NF); print int($NF)}' <<<"$u")
+msg=""
+(( free < MIN_FREE_GIB )) && msg+="Only ${free} GiB free. "
+(( unalloc < MIN_UNALLOC_GIB )) && msg+="Unallocated ${unalloc} GiB - run: sudo btrfs balance start -dusage=50 / . "
+(( meta > 90 )) && msg+="Metadata ${meta}% full. "
+[[ -z $msg ]] && { rm -f "$STATE"; exit 0; }
+[[ -f $STATE ]] && (( $(date +%s) - $(stat -c %Y "$STATE") < 21600 )) && exit 0
+notify-send -u critical -a disk-space-watch "Disk nearly full" "$msg Apps may lose data (Zen lost its cookies this way)."
+touch "$STATE"
+echo "$msg"

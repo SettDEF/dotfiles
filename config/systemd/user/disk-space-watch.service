@@ -1,0 +1,6 @@
+[Unit]
+Description=Warn when btrfs is running out of room (see ~/.scripts/disk-space-watch)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.scripts/disk-space-watch

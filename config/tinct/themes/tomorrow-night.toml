@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Tomorrow Night"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#1d1f21"
+grey2 = "#282a2e"
+grey3 = "#373b41"
+grey4 = "#969896"
+grey5 = "#b4b7b4"
+grey6 = "#c5c8c6"
+grey7 = "#e0e0e0"
+grey8 = "#ffffff"
+red1 = "#cc6666"
+orange1 = "#de935f"
+yellow1 = "#f0c674"
+yellow2 = "#b5bd68"
+cyan1 = "#8abeb7"
+blue1 = "#81a2be"
+purple1 = "#b294bb"
+red2 = "#a3685a"
+
+[roles]
+background = "#1d1f21"
+foreground = "#ffffff"
+primary = "#cc6666"

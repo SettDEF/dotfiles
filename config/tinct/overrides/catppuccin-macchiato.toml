@@ -1,0 +1,5 @@
+# Palette panel > Edit colours. A hex, or another variable's name.
+# Catppuccin's own layering (base, then surface0, surface1 for raised parts); the defaults were a step lighter
+surface_container = "base"
+surface_container_high = "surface0"
+surface_container_highest = "surface1"

@@ -1,0 +1,6 @@
+require("core.config.patches")
+require("core.config.options")
+require("core.config.terminal")
+require("core.config.statuscolumn")
+require("core.config.winbar")
+require("core.config.autocmds")

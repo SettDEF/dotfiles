@@ -1,0 +1,30 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Embark"
+dark = true
+derived = true
+
+[colors]
+purple1 = "#100e23"
+purple2 = "#1e1c31"
+purple3 = "#2f2a47"
+purple4 = "#3e3859"
+purple5 = "#585273"
+grey1 = "#8a889d"
+grey2 = "#cbe3e7"
+red1 = "#f48fb1"
+red2 = "#f02e6e"
+green1 = "#a1efd3"
+green2 = "#7fe9c3"
+yellow1 = "#ffe6b3"
+orange1 = "#f2b482"
+blue1 = "#91ddff"
+blue2 = "#78a8ff"
+purple6 = "#d4bfff"
+blue3 = "#7676ff"
+cyan1 = "#abf8f7"
+cyan2 = "#63f2f1"
+
+[roles]
+background = "#100e23"
+foreground = "#cbe3e7"
+primary = "#f02e6e"

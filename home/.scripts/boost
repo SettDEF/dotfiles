@@ -1,0 +1,66 @@
+#!/bin/bash
+# Simple X220t Performance Service with Frequency Restoration
+# Author: williamkiddy (improved by ChatGPT)
+# Date: 2025-03-19 13:30 (improved)
+# Version: 1.3
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root"
+    exit 1
+fi
+
+# Desired frequency limits in kHz
+MIN_FREQ=2500000
+MAX_FREQ=3400000
+
+# Declare an associative array to store original settings
+declare -A original_governors
+
+# Cleanup function to restore default settings
+cleanup() {
+    echo "Restoring default settings..."
+    for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
+        if [ -f "$cpu/cpufreq/scaling_governor" ]; then
+            echo "${original_governors[$cpu]}" > "$cpu/cpufreq/scaling_governor"
+            echo 2700000 > "$cpu/cpufreq/scaling_max_freq"
+            echo 800000 > "$cpu/cpufreq/scaling_min_freq"
+        fi
+    done
+    # Restore fan control to automatic
+    echo level auto > /proc/acpi/ibm/fan
+    exit 0
+}
+
+# Set up cleanup on script exit (Ctrl+C, SIGTERM, SIGINT)
+trap cleanup SIGTERM SIGINT
+
+echo "Enabling performance mode with custom frequency limits..."
+for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
+    if [ -f "$cpu/cpufreq/scaling_governor" ]; then
+        # Save current governor for later restoration
+        original_governors[$cpu]=$(cat "$cpu/cpufreq/scaling_governor")
+        # Set governor to performance
+        echo performance > "$cpu/cpufreq/scaling_governor"
+        # Set custom frequency limits
+        if [ -f "$cpu/cpufreq/scaling_max_freq" ] && [ -f "$cpu/cpufreq/scaling_min_freq" ]; then
+            echo $MAX_FREQ > "$cpu/cpufreq/scaling_max_freq"
+            echo $MIN_FREQ > "$cpu/cpufreq/scaling_min_freq"
+        fi
+    fi
+done
+
+# Set fan to full-speed mode
+echo level full-speed > /proc/acpi/ibm/fan
+
+echo "Monitoring started (Press Ctrl+C to stop)"
+while true; do
+    # Retrieve temperature (assumes sensors output format, adjust if necessary)
+    temp=$(sensors | awk '/Package id 0:/ {gsub("[+°C]", "", $4); print $4}')
+    # Retrieve CPU frequency from /proc/cpuinfo (first CPU only)
+    freq=$(awk '/cpu MHz/ {print $4; exit}' /proc/cpuinfo)
+    echo "Temperature: ${temp}°C  |  CPU Frequency: ${freq} MHz"
+    sleep 20
+    # Ensure fan remains in full-speed mode during monitoring
+    echo level full-speed > /proc/acpi/ibm/fan
+done

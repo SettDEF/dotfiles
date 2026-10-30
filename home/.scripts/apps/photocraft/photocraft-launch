@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Starts PhotoCraft at the right size on every monitor.
+#
+# Default: Xwayland, where the pen works (Wayland gives PhotoCraft no pen input).
+# There it took Xft.dpi (224 = 2.33x), too big everywhere, so it gets the scale of
+# the monitor it starts on; that size stays when dragged (Xwayland has no
+# per-monitor scale). --wayland: native, the size follows the monitor, no pen.
+#   photocraft-launch [FILES...]            Xwayland with pen pressure
+#   photocraft-launch --wayland [FILES...]  native Wayland, scale follows the monitor
+#   PHOTOCRAFT_SCALE=1.25 photocraft-launch a scale of your own
+#   photocraft-launch brushes.zip           a zip is unpacked; PhotoCraft gets the
+#                                           brushes, gradients, swatches inside
+#   photocraft-launch set.brushset          Procreate brushes (also .brush, or a zip of
+#                                           them): photocraft-brushset imports them; while
+#                                           PhotoCraft cannot take them they wait in
+#                                           ~/.cache/photocraft-brushset/pending
+#   photocraft-launch brushes.abr           Photoshop brushes: PhotoCraft asks to import them
+#
+# PhotoCraft always starts with its control channel (127.0.0.1:7878, token in
+# ~/.config/photocraft-brushset/token, reads only ~/.cache/photocraft-brushset):
+# that is how photocraft-brushset reaches the running app.
+set -euo pipefail
+
+pen=1
+case "${1:-}" in
+    --wayland) pen=0; shift ;;
+    --pen) shift ;;   # the old name of the default
+esac
+
+port="${PHOTOCRAFT_CONTROL_PORT:-7878}"
+token="${XDG_CONFIG_HOME:-$HOME/.config}/photocraft-brushset/token"
+readroot="${XDG_CACHE_HOME:-$HOME/.cache}/photocraft-brushset"
+mkdir -p "$readroot" && mkdir -p -m 700 "$(dirname "$token")"
+control=(--control "$port" --control-token-file "$token" --automation-read-root "$readroot")
+
+# Procreate brushes: a .brushset/.brush, or a zip holding them
+is_procreate() {
+    local l="${1,,}"
+    [[ "$l" == *.brushset || "$l" == *.brush ]] && return 0
+    [[ "$l" == *.zip ]] && bsdtar -tf "$1" 2>/dev/null | grep -qiE '\.(brushset|brush)$'
+}
+procreate=()
+rest=()
+for f in "$@"; do
+    if [[ -f "$f" ]] && is_procreate "$f"; then procreate+=("$f"); else rest+=("$f"); fi
+done
+set -- "${rest[@]}"
+
+# a brush pack from Telegram/the browser is a zip: PhotoCraft opens what is in it
+files=()
+for f in "$@"; do
+    if [[ "${f,,}" == *.zip && -f "$f" ]]; then
+        dir="${XDG_CACHE_HOME:-$HOME/.cache}/photocraft-imports/$(basename "${f%.*}")-$(date +%s)"
+        mkdir -p "$dir"
+        bsdtar -xf "$f" -C "$dir"
+        found=()
+        while IFS= read -r -d '' x; do found+=("$x"); done < <(find "$dir" -type f \( -iname '*.abr' -o -iname '*.grd' -o -iname '*.aco' -o -iname '*.ase' -o -iname '*.kys' \) -not -path '*/__MACOSX/*' -print0)
+        if (( ${#found[@]} == 0 )); then
+            notify-send -a PhotoCraft "Nothing to open in $(basename "$f")" "No brushes (.abr), gradients, swatches or shortcut sets inside" 2>/dev/null || true
+        fi
+        files+=("${found[@]}")
+    else
+        files+=("$f")
+    fi
+done
+set -- "${files[@]}"
+
+if (( pen )); then
+    scale="${PHOTOCRAFT_SCALE:-}"
+    if [[ -z "$scale" ]] && command -v hyprctl >/dev/null; then
+        scale=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused) | .scale' 2>/dev/null | head -1)
+    fi
+    [[ "$scale" =~ ^[0-9]+(\.[0-9]+)?$ ]] || scale=1
+    export WINIT_X11_SCALE_FACTOR="$scale"
+    unset PHOTOCRAFT_NATIVE_WAYLAND
+else
+    export PHOTOCRAFT_NATIVE_WAYLAND=1
+fi
+
+# Procreate brushes wait in a queue until a PhotoCraft with its control channel takes them:
+# nothing opened is lost, whichever way PhotoCraft was started
+queue="$readroot/pending"
+for f in "${procreate[@]}"; do
+    mkdir -p "$queue"
+    cp -f -- "$f" "$queue/$(date +%s%N)-$(basename "$f")"
+done
+pending() { compgen -G "$queue/*" >/dev/null; }
+listening() { (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; }
+say() { notify-send -a PhotoCraft "$1" "$2" 2>/dev/null || true; }
+
+# the queue, oldest first, once PhotoCraft listens (up to a minute while it starts)
+import_queue() {
+    for _ in $(seq 120); do listening && break; sleep 0.5; done
+    listening || return 1
+    for f in "$queue"/*; do
+        [[ -f "$f" ]] && "$HOME/.local/bin/photocraft-brushset" import "$f" && rm -f -- "$f"
+    done
+    return 0
+}
+
+if ! pgrep -x photocraft >/dev/null; then
+    pending || exec photocraft "${control[@]}" -- "$@"
+    setsid photocraft "${control[@]}" -- "$@" </dev/null >/dev/null 2>&1 &
+    import_queue || say "Brushes kept for later" \
+        "PhotoCraft did not open its control channel within a minute. The brushes are kept and imported the next time it starts."
+    exit 0
+fi
+
+# already running: other files go to it; the queue only through its control channel
+(( $# )) && photocraft -- "$@" </dev/null >/dev/null 2>&1
+pending || exit 0
+if listening; then
+    import_queue
+else
+    say "Brushes kept for later" \
+        "This PhotoCraft was started without its control channel. The brushes are kept and imported the next time it starts; close and reopen it when it suits you."
+fi

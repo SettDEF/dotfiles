@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Bespin"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#28211c"
+grey2 = "#36312e"
+grey3 = "#5e5d5c"
+grey4 = "#666666"
+grey5 = "#797977"
+grey6 = "#8a8986"
+grey7 = "#9d9b97"
+grey8 = "#baae9e"
+red1 = "#cf6a4c"
+orange1 = "#cf7d34"
+yellow1 = "#f9ee98"
+green1 = "#54be0d"
+blue1 = "#afc4db"
+blue2 = "#5ea6ea"
+purple1 = "#9b859d"
+yellow2 = "#937121"
+
+[roles]
+background = "#28211c"
+foreground = "#baae9e"
+primary = "#54be0d"

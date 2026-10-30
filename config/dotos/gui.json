@@ -1,0 +1,32 @@
+{
+    "arrangeStyle": "border",
+    "graphPins": "[]",
+    "graphPos": "{}",
+    "graphViews": "[]",
+    "homeCards": {
+        "agents": true,
+        "calendar": true,
+        "catchup": true,
+        "changes": true,
+        "due": true,
+        "habits": true,
+        "insights": false,
+        "notes": true,
+        "plan": false,
+        "projects": true,
+        "time": true,
+        "workout": false
+    },
+    "homeLayout": "[{\"id\":\"agents\",\"col\":0,\"row\":0,\"w\":8,\"h\":5},{\"id\":\"calendar\",\"col\":8,\"row\":0,\"w\":4,\"h\":5},{\"id\":\"due\",\"col\":0,\"row\":5,\"w\":8,\"h\":9},{\"id\":\"projects\",\"col\":8,\"row\":5,\"w\":4,\"h\":8},{\"id\":\"habits\",\"col\":0,\"row\":14,\"w\":6,\"h\":4},{\"id\":\"time\",\"col\":6,\"row\":14,\"w\":6,\"h\":5},{\"id\":\"plan\",\"col\":0,\"row\":18,\"w\":6,\"h\":7},{\"id\":\"insights\",\"col\":6,\"row\":19,\"w\":4,\"h\":5},{\"id\":\"notes\",\"col\":6,\"row\":19,\"w\":4,\"h\":6},{\"id\":\"changes\",\"col\":2,\"row\":18,\"w\":4,\"h\":6},{\"id\":\"catchup\",\"col\":0,\"row\":24,\"w\":4,\"h\":5},{\"id\":\"workout\",\"col\":0,\"row\":999,\"w\":4,\"h\":5}]",
+    "inspectorOpen": true,
+    "keybinds": {
+    },
+    "projectsSort": "health",
+    "showDone": false,
+    "sidebarCollapsed": false,
+    "startPage": "home",
+    "tasksGroup": "bucket",
+    "tasksView": "list",
+    "windowHeight": 990,
+    "windowWidth": 1590
+}

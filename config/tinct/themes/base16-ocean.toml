@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Ocean"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2b303b"
+grey2 = "#343d46"
+grey3 = "#4f5b66"
+grey4 = "#65737e"
+grey5 = "#a7adba"
+grey6 = "#c0c5ce"
+grey7 = "#dfe1e8"
+grey8 = "#eff1f5"
+red1 = "#bf616a"
+red2 = "#d08770"
+yellow1 = "#ebcb8b"
+green1 = "#a3be8c"
+grey9 = "#96b5b4"
+grey10 = "#8fa1b3"
+purple1 = "#b48ead"
+red3 = "#ab7967"
+
+[roles]
+background = "#2b303b"
+foreground = "#eff1f5"
+primary = "#d08770"

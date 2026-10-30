@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# DocFlash - Instant Technical Knowledge Surface
+# Version 4.0 - "Thoughtspeed Edition"
+
+set -eo pipefail
+shopt -s nocasematch extglob
+
+# ===== Blazing Fast Configuration =====
+VERSION="4.0"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/docflash"
+declare -A PRIORITY_PATHS=(
+    [man]="/usr/share/man"
+    [cli]="/usr/share/doc"
+    [conf]="$HOME/.config"
+    [code]="$HOME/Projects"
+    [sys]="/var/log /etc"
+)
+
+# ===== Instant-Start Architecture =====
+init_system() {
+    mkdir -p "$CACHE_DIR"
+    exec 3>&1  # Preserve STDOUT
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
+    load_priority_index
+}
+
+# ===== Quantum Search Functions =====
+surface_information() {
+    local query="$*" found=0
+    
+    # Parallel Search Execution
+    {
+        search_man "$query"
+        search_configs "$query"
+        search_codebase "$query"
+        search_logs "$query"
+    } | fzf --ansi --height 40% --reverse \
+            --preview "preview_handler {}" \
+            --preview-window "right:70%:wrap" \
+            --bind "enter:execute(open_handler {})" \
+            --bind "ctrl-r:reload(search_web {q})" 
+}
+
+search_man() {
+    man -k "$1" | awk -v q="$1" '
+    BEGIN {IGNORECASE=1}
+    $0 ~ q {
+        printf "\033[33m[man]\033[0m %s\n", $0
+        found=1
+    }
+    END {exit !found}' 
+}
+
+search_configs() {
+    find ${PRIORITY_PATHS[conf]} -type f -size -500k -exec grep -Hinm1 "$1" {} + 2>/dev/null |
+    while IFS=: read -r file line content; do
+        printf "\033[35m[conf]\033[0m %s:%d → %s\n" "${file##*/}" "$line" "$file"
+    done
+}
+
+search_codebase() {
+    rg --no-heading --color never --smart-case -C1 "$1" ${PRIORITY_PATHS[code]} 2>/dev/null |
+    awk 'BEGIN {RS="--"; FS="\n"}
+    {
+        file=$1; sub(/:.*/, "", file)
+        printf "\033[36m[code]\033[0m %s → %s\n", $0, file
+    }' | head -n 20
+}
+
+# ===== Instant Preview System =====
+preview_handler() {
+    case $1 in
+        \[man\]*)
+            man "${1#* }" | bat --color=always -l man
+            ;;
+        \[conf\]*)
+            file="${1#*→ }"
+            line="${1% →*}"
+            line="${line##*:}"
+            bat --color=always --highlight-line "$line" "$file"
+            ;;
+        \[code\]*)
+            echo "${1#*→ }" | bat --color=always
+            ;;
+        *) 
+            echo "Instant preview: ${1#*→ }" | cut -c1-200
+            ;;
+    esac
+}
+
+open_handler() {
+    case $1 in
+        \[man\]*) man "${1#* }" ;;
+        \[conf\]*|\[code\]*) $EDITOR "${1#*→ }" ;;
+        *) xdg-open "${1#*→ }" ;;
+    esac
+}
+
+# ===== First-Class Citizen Execution =====
+main() {
+    init_system
+    surface_information "$@"
+}
+
+main "$@"

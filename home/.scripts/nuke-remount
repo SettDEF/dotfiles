@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Recover /mnt/nuke9100 when the drive has fallen off the PCIe bus.
+#
+# The drive (nvme1 @ 0000:03:00.0) sometimes is not enumerated at boot. When
+# that happens the autofs mountpoint still exists but every access to it —
+# or to ~/Music, which is a symlink into it — errors with "No such device"
+# or blocks in autofs_wait, which is what wedges Dolphin.
+#
+# Order matters: try the cheap fixes first and only rescan the bus if the
+# device node is genuinely missing.
+set -uo pipefail
+DEV=/dev/nvme1n1p2
+SLOT=0000:03:00.0
+MNT=/mnt/nuke9100
+
+say() { printf '  %s\n' "$*"; }
+
+echo "== nuke9100 recovery =="
+
+if findmnt -rno TARGET,SOURCE "$MNT" 2>/dev/null | grep -q nvme; then
+    say "already mounted:"; findmnt -no SOURCE,FSTYPE "$MNT" | sed 's/^/    /'
+    say "nothing to do."; exit 0
+fi
+
+if [ ! -b "$DEV" ]; then
+    say "device $DEV missing — drive is not on the bus."
+    say "rescanning PCI (needs root)..."
+    echo 1 | sudo tee /sys/bus/pci/rescan >/dev/null || { say "rescan failed"; exit 1; }
+    for i in $(seq 1 20); do
+        [ -b "$DEV" ] && break
+        sleep 1
+    done
+    if [ ! -b "$DEV" ]; then
+        say "still absent after 20s. The drive needs a reboot, or reseating."
+        exit 1
+    fi
+    say "device came back."
+fi
+
+say "starting the mount unit..."
+sudo systemctl start mnt-nuke9100.mount || { say "mount failed — see: journalctl -u mnt-nuke9100.mount"; exit 1; }
+
+if findmnt -rno TARGET "$MNT" >/dev/null 2>&1; then
+    say "mounted OK:"; /usr/bin/df -h "$MNT" | tail -1 | sed 's/^/    /'
+    say "~/Music -> $(timeout 10 ls ~/Music >/dev/null 2>&1 && echo reachable || echo STILL BROKEN)"
+else
+    say "mount unit ran but nothing is mounted."; exit 1
+fi

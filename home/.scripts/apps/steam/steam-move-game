@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Move a Steam game between libraries by hand, when Steam's own mover will not.
+#
+#   steam-move-game <appid> <source-library> <dest-library>
+#   steam-move-game 3354750 /mnt/nuke9100/Games/steamapps /mnt/storage/SteamLibrary
+#   steam-move-game --dry-run 3354750 <src> <dst>
+#
+# A library is the folder CONTAINING steamapps/. Steam's own config may record
+# it one level deeper, which is its own bug — pass the real parent.
+#
+# Why this exists: Steam's mover fails on Proton prefixes copied off NTFS. The
+# prefix is full of symlinks (1388 in one case) stored as reparse points, and
+# the mover recreates them wrongly on the way out, then dies with "Can't
+# overwrite existing file" having moved 98% of the game. rsync -a copies a
+# symlink as a symlink and does not care what the source filesystem is.
+#
+# Copies first and verifies before deleting anything, so a failure halfway
+# leaves the original intact and the game still playable.
+set -euo pipefail
+
+DRY=0
+[ "${1:-}" = "--dry-run" ] && { DRY=1; shift; }
+[ $# -eq 3 ] || { sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 2; }
+
+APP=$1; SRC=${2%/}; DST=${3%/}
+die() { echo "steam-move-game: $*" >&2; exit 1; }
+
+# Accept either the library root or its steamapps/ by mistake.
+[ -d "$SRC/steamapps" ] || SRC=$(dirname "$SRC")
+[ -d "$DST/steamapps" ] || DST=$(dirname "$DST")
+[ -d "$SRC/steamapps" ] || die "no steamapps under source"
+[ -d "$DST/steamapps" ] || die "no steamapps under dest"
+
+MAN="$SRC/steamapps/appmanifest_$APP.acf"
+[ -f "$MAN" ] || die "no manifest $MAN"
+DIR=$(grep -m1 '"installdir"' "$MAN" | sed 's/.*"installdir"[^"]*"\([^"]*\)".*/\1/')
+[ -n "$DIR" ] || die "could not read installdir from the manifest"
+
+pgrep -x steam >/dev/null && die "Steam is running — quit it completely first"
+
+need=$(/usr/bin/du -sb "$SRC/steamapps/common/$DIR" 2>/dev/null | cut -f1)
+have=$(/usr/bin/df -B1 --output=avail "$DST" | tail -1)
+[ "$have" -gt "$((need + need/20))" ] || die "not enough room: need $((need/1073741824)) GiB, have $((have/1073741824)) GiB"
+
+echo "app      : $APP ($DIR)"
+echo "from     : $SRC/steamapps"
+echo "to       : $DST/steamapps"
+echo "size     : $((need/1073741824)) GiB"
+[ "$DRY" = 1 ] && { echo "(dry run — nothing copied)"; exit 0; }
+
+copy() {   # $1 relative path under steamapps/
+    [ -e "$SRC/steamapps/$1" ] || { echo "  skip $1 (absent)"; return 0; }
+    echo "  copying $1"
+    mkdir -p "$(dirname "$DST/steamapps/$1")"
+    # -a keeps symlinks AS symlinks, which is the whole point.
+    rsync -a --info=progress2 --no-inc-recursive \
+        "$SRC/steamapps/$1/" "$DST/steamapps/$1/"
+}
+
+copy "common/$DIR"
+copy "compatdata/$APP"
+
+# Verify by file count and byte total before anything is removed.
+for rel in "common/$DIR" "compatdata/$APP"; do
+    [ -e "$SRC/steamapps/$rel" ] || continue
+    a=$(find "$SRC/steamapps/$rel" | wc -l); b=$(find "$DST/steamapps/$rel" | wc -l)
+    [ "$a" = "$b" ] || die "verify failed on $rel: $a entries at source, $b at dest — nothing deleted"
+    echo "  verified $rel: $a entries"
+done
+
+/usr/bin/cp "$MAN" "$DST/steamapps/appmanifest_$APP.acf"
+echo "manifest copied"
+echo
+echo "Copied and verified. The source is still in place; remove it with:"
+echo "  rm -rf '$SRC/steamapps/common/$DIR' '$SRC/steamapps/compatdata/$APP' '$MAN'"
+echo "Start Steam first and check the game launches from the new library."

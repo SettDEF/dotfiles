@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Espresso"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2d2d2d"
+grey2 = "#393939"
+grey3 = "#515151"
+grey4 = "#777777"
+grey5 = "#b4b7b4"
+grey6 = "#cccccc"
+grey7 = "#e0e0e0"
+grey8 = "#ffffff"
+red1 = "#d25252"
+orange1 = "#f9a959"
+orange2 = "#ffc66d"
+green1 = "#a5c261"
+blue1 = "#bed6ff"
+blue2 = "#6c99bb"
+purple1 = "#d197d9"
+red2 = "#f97394"
+
+[roles]
+background = "#2d2d2d"
+foreground = "#ffffff"
+primary = "#f97394"

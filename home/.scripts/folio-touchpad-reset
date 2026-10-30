@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Bring the ROG Flow Z13 folio touchpad back without rebooting.
+#
+# THE PROBLEM
+# When the keyboard folio drops off USB and comes back (pogo pins, autosuspend,
+# or a detach), the touchpad re-enumerates and looks completely healthy:
+#
+#   0003:0B05:1A30.00XX -> hid-multitouch      driver bound
+#   /dev/input/eventNN                          node present
+#   libinput list-devices                       reports it normally
+#
+# ...and emits nothing. Only a full reboot fixes it. That is the signature of an
+# ASUS precision touchpad that never got switched out of mouse-emulation into
+# multitouch mode — the HID feature report that does it runs at probe time, and
+# on a hotplug re-enumeration it does not take.
+#
+# Unbinding and rebinding the driver re-runs probe, which re-runs that init.
+#
+# WHY THIS IS A SCRIPT AND NOT TWO ECHOES
+# The HID id suffix (.0015, .0018, .0022 …) increments on EVERY re-enumeration,
+# so a hardcoded id is stale the first time you actually need it. This resolves
+# the touchpad interface by driver + device name each run.
+#
+# Usage:  sudo folio-touchpad-reset          # rebind the HID interface
+#         sudo folio-touchpad-reset --usb    # harder: re-authorize the whole folio
+set -uo pipefail
+
+[ "$(id -u)" -eq 0 ] || { echo "needs root: sudo $0 $*" >&2; exit 1; }
+
+MODE=${1:-hid}
+
+# Resolve the touchpad's HID interface by what it IS, not by a remembered id.
+find_touchpad_hid() {
+    for d in /sys/bus/hid/devices/*0B05:1A30*; do
+        [ -e "$d/driver" ] || continue
+        [ "$(basename "$(readlink -f "$d/driver")")" = "hid-multitouch" ] || continue
+        # Confirm it really is the touchpad and not another multitouch interface.
+        for i in "$d"/input/input*; do
+            grep -qi "touchpad" "$i/name" 2>/dev/null && { basename "$d"; return 0; }
+        done
+    done
+    return 1
+}
+
+current_node() {
+    local id=$1
+    for i in /sys/bus/hid/devices/"$id"/input/input*; do
+        grep -qi "touchpad" "$i/name" 2>/dev/null || continue
+        ls "$i" | grep -o '^event[0-9]*' | head -1
+        return 0
+    done
+}
+
+if [ "$MODE" = "--usb" ]; then
+    # Full re-enumeration of the folio. More disruptive: the keyboard goes away
+    # for a second too, so it is the fallback rather than the default.
+    port=$(basename "$(dirname "$(readlink -f /sys/bus/hid/devices/*0B05:1A30*/../.. 2>/dev/null | head -1)")")
+    [ -d /sys/bus/usb/devices/3-4 ] && port=3-4
+    echo "re-authorizing USB device $port (keyboard will blink out briefly)"
+    echo 0 > "/sys/bus/usb/devices/$port/authorized"
+    sleep 2
+    echo 1 > "/sys/bus/usb/devices/$port/authorized"
+    sleep 2
+else
+    id=$(find_touchpad_hid) || { echo "touchpad HID interface not found — is the folio attached?" >&2; exit 1; }
+    old_node=$(current_node "$id")
+    echo "rebinding $id (currently /dev/input/${old_node:-?})"
+    echo "$id" > /sys/bus/hid/drivers/hid-multitouch/unbind 2>/dev/null
+    sleep 1
+    echo "$id" > /sys/bus/hid/drivers/hid-multitouch/bind 2>/dev/null
+    sleep 2
+fi
+
+new_id=$(find_touchpad_hid) || { echo "touchpad did not come back — try: sudo $0 --usb" >&2; exit 1; }
+node=$(current_node "$new_id")
+echo "touchpad is now $new_id on /dev/input/${node:-?}"
+echo
+echo "test it:  libinput debug-events --device /dev/input/$node"

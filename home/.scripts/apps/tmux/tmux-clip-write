@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# tmux clipboard writer — fan out to every clipboard target available
+# in the current environment, so the same `y` / mouse-drag binding works
+# whether tmux is running in:
+#   * a Wayland session (wl-copy)
+#   * an X11 session    (xclip / xsel)
+#   * a raw TTY         (no clipboard server — falls back to a file)
+#
+# The file fallback `~/.cache/tmux-clip` always gets written too — so
+# something selected in a TTY tmux can be retrieved later from a
+# graphical terminal via:   wl-copy < ~/.cache/tmux-clip
+#
+# Reads selection content from stdin (tmux's copy-pipe model).
+set -u
+
+# Buffer stdin once — we want to feed it to multiple sinks.
+content=$(/usr/bin/cat)
+
+# 1. File sink (always, regardless of environment)
+mkdir -p "$HOME/.cache" 2>/dev/null
+printf '%s' "$content" > "$HOME/.cache/tmux-clip" 2>/dev/null
+
+# 2. Wayland — Hyprland / sway / etc.
+if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+    printf '%s' "$content" | wl-copy 2>/dev/null
+fi
+
+# 3. X11 — both clipboard and primary selection for legacy apps
+if [ -n "${DISPLAY:-}" ]; then
+    if command -v xclip >/dev/null 2>&1; then
+        printf '%s' "$content" | xclip -in -selection clipboard 2>/dev/null
+        printf '%s' "$content" | xclip -in -selection primary   2>/dev/null
+    elif command -v xsel >/dev/null 2>&1; then
+        printf '%s' "$content" | xsel -i -b 2>/dev/null
+        printf '%s' "$content" | xsel -i -p 2>/dev/null
+    fi
+fi
+
+# 4. OSC 52 — works through most terminal emulators AND through SSH
+# back to a host with clipboard access. Skip on raw TTY because the
+# kernel console doesn't interpret OSC 52.
+if [ -t 1 ] && [ -n "${TERM:-}" ] && [ "${TERM}" != "linux" ]; then
+    b64=$(printf '%s' "$content" | base64 | tr -d '\n')
+    printf '\033]52;c;%s\a' "$b64" > /dev/tty 2>/dev/null
+fi
+
+exit 0

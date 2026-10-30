@@ -1,0 +1,25 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Gruvbox Material Light"
+dark = false
+derived = true
+
+[colors]
+yellow1 = "#fbf1c7"
+yellow2 = "#f4e8be"
+yellow3 = "#f2e5bc"
+yellow4 = "#eee0b7"
+yellow5 = "#e5d5ad"
+yellow6 = "#ddccab"
+orange1 = "#654735"
+red1 = "#c14a4a"
+orange2 = "#c35e0a"
+orange3 = "#b47109"
+yellow7 = "#6c782e"
+green1 = "#4c7a5d"
+cyan1 = "#45707a"
+purple1 = "#945e80"
+
+[roles]
+background = "#fbf1c7"
+foreground = "#654735"
+primary = "#c14a4a"

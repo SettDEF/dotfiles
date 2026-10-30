@@ -1,0 +1,13 @@
+[Unit]
+Description=Check every 15 minutes for orphaned Xvfb instances
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+# The reaper only kills things older than 30 minutes, so a check that drifts is
+# harmless — no need to wake the machine for it.
+AccuracySec=2min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

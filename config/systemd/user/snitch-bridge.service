@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenSnitch UI service for the ii shell (snitch-bridge)
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/snitch-bridge
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

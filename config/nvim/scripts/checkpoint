@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Commit the whole nvim config as a checkpoint so the next Claude edit shows up
+# cleanly in `git diff` / gitsigns. Usage: scripts/checkpoint ["message"]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then sed -n '2,3p' "$0" | sed 's/^# \?//'; exit 0; fi
+if git diff --quiet && git diff --cached --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+  echo "nothing to checkpoint"; exit 0
+fi
+git add -A
+git commit -q -m "checkpoint: ${1:-$(date +%F\ %H:%M)}"
+git log --oneline -1

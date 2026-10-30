@@ -1,0 +1,6 @@
+[Unit]
+Description=Re-inject BetterDiscord after a Discord update
+
+[Service]
+Type=oneshot
+ExecStart=/home/caesar/.config/quickshell/ii/scripts/discord/bd-reinject.sh

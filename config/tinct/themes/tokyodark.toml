@@ -1,0 +1,21 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Tokyodark"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#06080a"
+blue1 = "#a0a8cd"
+grey2 = "#4a5057"
+red1 = "#ee6d85"
+orange1 = "#f6955b"
+orange2 = "#d7a65f"
+green1 = "#95c561"
+blue2 = "#7199ee"
+cyan1 = "#38a89d"
+purple1 = "#a485dd"
+
+[roles]
+background = "#06080a"
+foreground = "#a0a8cd"
+primary = "#ee6d85"

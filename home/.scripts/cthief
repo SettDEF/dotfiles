@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+import sys, os
+from colorthief import ColorThief
+from colormath.color_objects import sRGBColor, LabColor
+from colormath.color_conversions import convert_color
+from colormath.color_diff import delta_e_cie2000
+from pathlib import Path
+
+# --- paths ---
+palette_file = Path.home() / ".local/share/nvim/lazy/neovim/lua/cocoa/colors/colors.lua"
+cache_file   = Path.home() / ".cache/current_colors.lua"
+
+# --- helpers ---
+def hex_to_rgb(hex_color):
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+def closest_color(target_rgb, palette):
+    target_lab = convert_color(sRGBColor(*target_rgb, is_upscaled=True), LabColor)
+    best_key, best_hex, best_diff = None, None, 9999
+    for key, hexcol in palette.items():
+        c = hex_to_rgb(hexcol)
+        lab = convert_color(sRGBColor(*c, is_upscaled=True), LabColor)
+        diff = delta_e_cie2000(target_lab, lab)
+        if diff < best_diff:
+            best_key, best_hex, best_diff = key, hexcol, diff
+    return best_key, best_hex
+
+def parse_lua_colors(lua_file):
+    """ crude parser: extract = "#xxxxxx" """
+    colors = {}
+    for line in open(lua_file):
+        if "=" in line and "#" in line:
+            parts = line.strip().split("=")
+            key = parts[0].strip().replace(",", "")
+            val = parts[1].strip().strip(",").strip('"').strip("'")
+            if val.startswith("#"):
+                colors[key] = val
+    return colors
+
+def get_current_wallpaper():
+    """Detect wallpaper from CLI arg, feh, or KDE Plasma"""
+    # 1. CLI arg
+    if len(sys.argv) > 1:
+        return sys.argv[1]
+
+    # 2. feh
+    fehbg = os.path.expanduser("~/.fehbg")
+    if os.path.exists(fehbg):
+        with open(fehbg) as f:
+            line = f.read().strip()
+            if "feh" in line:
+                return line.split()[-1].strip("'\"")
+
+    # 3. KDE Plasma
+    plasma = os.path.expanduser("~/.config/plasma-org.kde.plasma.desktop-appletsrc")
+    if os.path.exists(plasma):
+        with open(plasma) as f:
+            for line in f:
+                if line.strip().startswith("Image="):
+                    return line.split("=", 1)[1].strip().replace("file://", "")
+
+    print("❌ Could not detect wallpaper (pass as arg or use feh/KDE).")
+    sys.exit(1)
+
+# --- main ---
+wall = get_current_wallpaper()
+ct = ColorThief(wall)
+wp_colors = ct.get_palette(color_count=8)
+
+# load palette
+juicy = parse_lua_colors(palette_file)
+
+# map colors
+mapped = {}
+for idx, col in enumerate(wp_colors):
+    name, hexcol = closest_color(col, juicy)
+    mapped[f"color{idx}"] = hexcol
+
+# detect dark/light
+avg = sum([sum(c)/3 for c in wp_colors]) / len(wp_colors)
+background = "dark" if avg < 128 else "light"
+
+# write Neovim cache file
+with open(cache_file, "w") as f:
+    f.write("return {\n")
+    for k, v in mapped.items():
+        f.write(f'  {k} = "{v}",\n')
+    f.write(f'  background = "{background}",\n')
+    f.write("}\n")

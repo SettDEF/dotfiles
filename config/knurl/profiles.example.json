@@ -1,0 +1,14 @@
+{
+  "profiles": [
+    {
+      "name": "Music",
+      "apps": ["com.bitwig.BitwigStudio", "bitwig-studio"],
+      "set": { "bt-046d-b034": { "dpi": 1600, "wheel": 2 } }
+    },
+    {
+      "name": "Games",
+      "apps": ["steam_app_*", "gamescope"],
+      "set": { "usb-0b05-1a30": { "kbd_light": 0 } }
+    }
+  ]
+}

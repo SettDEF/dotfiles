@@ -1,0 +1,23 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Monokai"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#272822"
+grey2 = "#1e1f1c"
+grey3 = "#3e3d32"
+grey4 = "#75715e"
+grey5 = "#f8f8f2"
+red1 = "#f92672"
+orange1 = "#fd971f"
+yellow1 = "#e6db74"
+green1 = "#a6e22e"
+cyan1 = "#66d9ef"
+purple1 = "#ae81ff"
+orange2 = "#cc6633"
+
+[roles]
+background = "#272822"
+foreground = "#f8f8f2"
+primary = "#f92672"

@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Summerfruit Dark"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#151515"
+grey2 = "#202020"
+grey3 = "#303030"
+grey4 = "#505050"
+grey5 = "#b0b0b0"
+grey6 = "#d0d0d0"
+grey7 = "#e0e0e0"
+grey8 = "#ffffff"
+red1 = "#ff0086"
+orange1 = "#fd8900"
+yellow1 = "#aba800"
+green1 = "#00c918"
+cyan1 = "#1faaaa"
+blue1 = "#3777e6"
+purple1 = "#ad00a1"
+orange2 = "#cc6633"
+
+[roles]
+background = "#151515"
+foreground = "#ffffff"
+primary = "#ff0086"

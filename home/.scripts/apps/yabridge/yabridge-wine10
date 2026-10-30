@@ -1,0 +1,43 @@
+#!/bin/sh
+# yabridge-wine10: yabridge that works with Wine 9.22+ (mouse offset fix): builds the new-wine10-embedding branch with our patch, installs it to ~/.local/share/yabridge, re-syncs.
+# Usage: yabridge-wine10 [--no-pull]   (Bitwig closed first). Undo: remove yabridge_home from ~/.config/yabridgectl/config.toml, yabridgectl sync.
+#
+# Why: Wine 9.22 changed window handling and broke plugin GUI clicks (yabridge #382); the fix lives
+# on upstream's new-wine10-embedding branch (PR #405), not in a release yet. Our patch
+# (local-yabridge-first.patch) makes yabridge look in ~/.local/share/yabridge before PATH, else the
+# distro package's /usr/bin/yabridge-host.exe (old) wins over this build.
+set -eu
+SRC=${YABRIDGE_SRC:-/mnt/storage/dev/src/yabridge}
+HERE=$(dirname "$(readlink -f "$0")")
+DEST=${XDG_DATA_HOME:-$HOME/.local/share}/yabridge
+CONF=$HOME/.config/yabridgectl/config.toml
+
+if pgrep -f '[B]itwigStudio' >/dev/null; then
+	echo "yabridge-wine10: close Bitwig first (plugins in use)" >&2
+	exit 1
+fi
+
+if [ ! -d "$SRC/.git" ]; then
+	git clone --branch new-wine10-embedding https://github.com/robbert-vdh/yabridge.git "$SRC"
+fi
+cd "$SRC"
+if [ "${1:-}" != "--no-pull" ]; then
+	# our patch off, upstream's latest on, our patch on again
+	git checkout -- src/common/process.cpp
+	git pull --ff-only
+fi
+git apply --check "$HERE/local-yabridge-first.patch" 2>/dev/null && git apply "$HERE/local-yabridge-first.patch"
+
+[ -d build ] || meson setup build --buildtype=release --cross-file=cross-wine.conf --unity=on --unity-size=1000
+nice -n 19 ninja -C build -j "${JOBS:-2}"
+
+mkdir -p "$DEST"
+for f in libyabridge-chainloader-clap.so libyabridge-chainloader-vst2.so libyabridge-chainloader-vst3.so \
+	libyabridge-clap.so libyabridge-vst2.so libyabridge-vst3.so yabridge-host.exe yabridge-host.exe.so; do
+	/usr/bin/cp -f "build/$f" "$DEST/"
+done
+
+# yabridgectl set --path crashes in 5.1.1: the setting goes into its config directly
+grep -q '^yabridge_home' "$CONF" || sed -i "1i yabridge_home = '$DEST'" "$CONF"
+yabridgectl sync
+echo "yabridge-wine10: $(git describe --tags --always) installed to $DEST"

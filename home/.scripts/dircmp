@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Check if two directories are provided
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <directory1> <directory2>"
+    exit 1
+fi
+
+# Directories to compare
+DIR1="$1"
+DIR2="$2"
+
+# Check if both directories exist
+if [ ! -d "$DIR1" ]; then
+    echo "Error: '$DIR1' is not a valid directory."
+    exit 1
+fi
+
+if [ ! -d "$DIR2" ]; then
+    echo "Error: '$DIR2' is not a valid directory."
+    exit 1
+fi
+
+# Function to compare directories recursively
+compare_directories() {
+    local dir1="$1"
+    local dir2="$2"
+
+    # Loop through all files and directories in the first directory
+    find "$dir1" -type f | while read -r file1; do
+        # Get the relative path of the file
+        rel_path="${file1#$dir1/}"
+        file2="$dir2/$rel_path"
+
+        # Check if the file exists in the second directory
+        if [ ! -e "$file2" ]; then
+            echo "$file1 is missing in $dir2"
+            continue
+        fi
+
+        # Compare the files
+        echo "Comparing $file1 and $file2..."
+        diff -u "$file1" "$file2" > /tmp/diff_output.txt
+
+        if [ -s /tmp/diff_output.txt ]; then
+            echo "Differences found between $file1 and $file2:"
+            cat /tmp/diff_output.txt
+        else
+            echo "No differences between $file1 and $file2."
+        fi
+
+        echo "--------------------------------------------"
+    done
+
+    # Check for files in the second directory that don't exist in the first directory
+    find "$dir2" -type f | while read -r file2; do
+        rel_path="${file2#$dir2/}"
+        file1="$dir1/$rel_path"
+        if [ ! -e "$file1" ]; then
+            echo "$file2 is missing in $dir1"
+        fi
+    done
+}
+
+# Call the function to compare directories recursively
+compare_directories "$DIR1" "$DIR2"
+
+# Cleanup temporary file
+rm -f /tmp/diff_output.txt

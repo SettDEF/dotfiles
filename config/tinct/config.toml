@@ -1,0 +1,263 @@
+# tinct configuration.
+#
+# Each [templates.<name>] table renders one file from the palette,
+# plus a [config] section for engine defaults.
+# Precedence: command-line flag > this file > built-in default.
+
+[config]
+# Material scheme for `tinct generate`. "auto" picks one per image from its
+# colourfulness, the same way `tinct scheme` does.
+# scheme = "vibrant"          # tonal-spot | vibrant | expressive | fruit-salad
+                              # monochrome | rainbow | neutral | fidelity
+                              # content | auto
+# mode   = "auto"             # dark | light | auto (follows gsettings)
+# contrast = 0.0              # -1.0 … 1.0
+# size = 128                  # quantization bitmap size
+# smart = false               # drop to neutral when the seed has little chroma
+# transparency = "opaque"     # opaque | transparent
+
+# Terminal harmonisation
+# termscheme = "~/.config/tinct/base16.json"
+# harmony = 0.8               # 0-1, hue shift toward the accent
+# harmonize_threshold = 100   # 0-180, max hue rotation
+# term_fg_boost = 0.35
+# blend_bg_fg = false
+
+# Transforms, applied after generation
+# theory = ""                 # mono | analogous | complementary | triadic
+                              # split | tetradic
+# style = ""                  # pastel | muted | bright | colorful | material
+# practical = ""              # high-contrast | duotone
+# remap = ""                  # catppuccin | gruvbox | nord | …
+# mix_order = ""
+
+# Where `generate` writes when no --out flag is given
+# out_json = "~/.local/state/tinct/colors.json"
+# out_scss = "~/.local/state/tinct/colors.scss"
+
+# ── Templates ────────────────────────────────────────────────────────────
+# Rendered by `tinct render`. input_path is a template, output_path is where
+# the result lands, post_hook runs afterwards (e.g. to reload the app).
+#
+# [templates.gtk3]
+# input_path  = "~/.config/tinct/templates/gtk.css"
+# output_path = "~/.config/gtk-3.0/gtk.css"
+#
+# [templates.kitty]
+# input_path  = "~/.config/tinct/templates/kitty.conf"
+# output_path = "~/.config/kitty/colors.conf"
+# post_hook   = "pkill -SIGUSR1 -x kitty"
+
+
+[templates.m3colors]
+input_path = '~/.config/tinct/templates/colors.json'
+output_path = '~/.local/state/quickshell/user/generated/colors.json'
+
+[templates.neovim_cocoa]
+input_path = '~/.config/tinct/templates/neovim/cocoa.lua'
+output_path = '~/.local/state/quickshell/user/generated/nvim_colors.lua'
+post_hook = '~/.config/tinct/templates/neovim/post-hook.sh'
+
+[templates.hyprland]
+input_path = '~/.config/tinct/templates/hyprland/colors.conf'
+output_path = '~/.config/hypr/hyprland/colors.conf'
+
+[templates.hyprlock]
+input_path = '~/.config/tinct/templates/hyprland/hyprlock-colors.conf'
+output_path = '~/.config/hypr/hyprlock/colors.conf'
+
+[templates.fuzzel]
+input_path = '~/.config/tinct/templates/fuzzel/fuzzel_theme.ini'
+output_path = '~/.config/fuzzel/fuzzel_theme.ini'
+
+[templates.gtk3]
+input_path = '~/.config/tinct/templates/gtk-3.0/gtk.css'
+output_path = '~/.config/gtk-3.0/gtk.css'
+
+[templates.gtk4]
+input_path = '~/.config/tinct/templates/gtk-4.0/gtk.css'
+output_path = '~/.config/gtk-4.0/gtk.css'
+
+[templates.kde_colors]
+input_path = '~/.config/tinct/templates/kde/color.txt'
+output_path = '~/.local/state/quickshell/user/generated/color.txt'
+
+[templates.kde_scheme]
+input_path = '~/.config/tinct/templates/kde/Tinct.colors'
+output_path = '~/.local/state/quickshell/user/generated/Tinct.colors'
+
+[templates.wallpaper]
+input_path = '~/.config/tinct/templates/wallpaper.txt'
+output_path = '~/.local/state/quickshell/user/generated/wallpaper/path.txt'
+
+[templates.bitwig-theme]
+input_path = '~/.config/tinct/templates/bitwig-studio/bitwig.tpl'
+output_path = '~/.bitwig-theme-editor/versions/6.1/theme.bte'
+
+[templates.bitwig-palette]
+input_path = '~/.config/tinct/templates/bitwig-studio/bitwig_palette.py.tpl'
+output_path = '/tmp/bitwig_palette_gen.py'
+post_hook = 'python3 /tmp/bitwig_palette_gen.py'
+
+[templates.minimeters]
+input_path  = '~/.config/tinct/templates/minimeters/MaterialYou.map'
+output_path = '~/.config/MiniMeters/colormaps/MaterialYou.map'
+
+[templates.minimeters-theme]
+input_path  = '~/.config/tinct/templates/minimeters/MaterialYou.ini'
+output_path = '~/.config/MiniMeters/Themes/MaterialYou.ini'
+
+[templates.stylus_theme]
+input_path = "~/.config/tinct/templates/firefox/theme.user.css"
+output_path = "~/.local/share/stylus-themes/theme.user.css"
+
+[templates.stylus_gmail]
+input_path = "~/.config/tinct/templates/firefox/gmail.user.css"
+output_path = "~/.local/share/stylus-themes/gmail.user.css"
+
+[templates.stylus_drive]
+input_path = "~/.config/tinct/templates/firefox/drive.user.css"
+output_path = "~/.local/share/stylus-themes/drive.user.css"
+
+[templates.tmux]
+input_path = '~/.config/tinct/templates/tmux/colors.conf'
+output_path = '~/.config/tmux/tinct_colors.conf'
+post_hook = 'tmux source-file ~/.config/tmux/tinct_colors.conf 2>/dev/null; ~/.local/bin/zeit source-file ~/.config/zeit/init.lua >/dev/null 2>&1 || true'
+
+[templates.zsh]
+input_path = '~/.config/tinct/templates/zsh/colors.zsh'
+output_path = '~/.local/state/quickshell/user/generated/zsh_colors.zsh'
+
+[templates.wezterm]
+input_path = '~/.config/tinct/templates/wezterm/colors.lua'
+output_path = '~/.config/wezterm/tinct_colors.lua'
+# Touch wezterm.lua so wezterm's built-in watch of that file fires the
+# reload reliably — watching just tinct_colors.lua alone misses some
+# events on external mounts / very fast overwrites, leaving stale bg.
+post_hook = 'touch ~/.config/wezterm/wezterm.lua'
+
+[templates.kitty]
+input_path = '~/.config/tinct/templates/kitty/kitty-theme.conf'
+output_path = '~/.local/state/quickshell/user/generated/terminal/kitty-theme.conf'
+# SIGUSR1 tells every running kitty process to reload its config in place,
+# regardless of whether that instance has a remote-control socket. The
+# `kitten @` fallback covers the socketed case for good measure.
+post_hook = 'pkill -SIGUSR1 -x kitty 2>/dev/null; kitten @ --to unix:@kitty load-config 2>/dev/null; true'
+
+[templates.popfox]
+input_path  = "~/.config/tinct/templates/firefox/popfox.css"
+output_path = "~/.config/mozilla/firefox/55sk54sa.default-release/chrome/PopFox/pop-tinct.css"
+
+
+
+
+[templates.zathura]
+input_path = '~/.config/tinct/templates/zathura/colors.rc'
+output_path = '~/.config/zathura/colors.rc'
+
+# Served by tela-newtab at /theme.css and linked after its built-in
+# stylesheet, so it overrides the compiled defaults. No post_hook: the server
+# reads the file per request, so reloading the tab is enough.
+[templates.tela-newtab]
+input_path  = "~/.config/tinct/templates/tela-newtab.css"
+output_path = "~/.config/tela-newtab/theme.css"
+
+# Keyboard backlight follows the wallpaper palette. A plain pipeline: tee
+# remembers the colour so the boot service can restore it. `|| true` keeps a
+# theme change from failing when the folio is detached.
+[templates.iris]
+input_path = '~/.config/tinct/templates/iris/color.txt'
+output_path = '~/.local/state/quickshell/user/generated/iris_color.txt'
+post_hook = 'cat ~/.local/state/quickshell/user/generated/iris_color.txt | tee ~/.config/iris/color | ~/.local/bin/iris hid solid - --vivid >/dev/null 2>&1 || true'
+
+# Discord clients: one Midnight theme, coloured from the wallpaper. They watch the
+# file, so there is no post_hook. Only clients that have a themes dir get one.
+[templates.discord-vesktop]
+input_path  = '~/.config/tinct/templates/discord/midnight.theme.css'
+output_path = '~/.config/vesktop/themes/caelestia.theme.css'
+
+[templates.discord-vencord]
+input_path  = '~/.config/tinct/templates/discord/midnight.theme.css'
+output_path = '~/.config/Vencord/themes/caelestia.theme.css'
+
+[templates.discord-equicord]
+input_path  = '~/.config/tinct/templates/discord/midnight.theme.css'
+output_path = '~/.config/Equicord/themes/caelestia.theme.css'
+
+[templates.discord-legcord]
+input_path  = '~/.config/tinct/templates/discord/midnight.theme.css'
+output_path = '~/.config/legcord/themes/caelestia.theme.css'
+
+[templates.discord-betterdiscord]
+input_path  = '~/.config/tinct/templates/discord/midnight.theme.css'
+output_path = '~/.config/BetterDiscord/themes/caelestia.theme.css'
+
+
+# Terminal cava (the shell's visualizer uses its own config). Loaded via
+# `theme = 'tinct'`; SIGUSR2 makes a running cava reload its colours.
+[templates.cava]
+input_path = '~/.config/tinct/templates/cava/tinct'
+output_path = '~/.config/cava/themes/tinct'
+post_hook = 'pkill -USR2 -x cava 2>/dev/null; true'
+
+# `color_theme = "tinct"` in btop.conf. btop doesn't watch the file, but
+# SIGUSR2 makes a running btop reload its config and theme in place.
+[templates.btop]
+input_path = '~/.config/tinct/templates/btop/tinct.theme'
+output_path = '~/.config/btop/themes/tinct.theme'
+post_hook = 'pkill -USR2 -x btop 2>/dev/null; true'
+
+# CSS snippet, enabled in each vault's appearance.json. Obsidian reloads
+# snippets live. One entry per vault.
+[templates.obsidian-workspace]
+input_path = '~/.config/tinct/templates/obsidian/tinct.css'
+output_path = '~/workspace/.obsidian/snippets/tinct.css'
+
+[templates.obsidian-notes]
+input_path = '~/.config/tinct/templates/obsidian/tinct.css'
+output_path = '~/Documents/Notes/Obsidian/.obsidian/snippets/tinct.css'
+
+# Sourced from config.py; a running qutebrowser re-reads its config.
+[templates.qutebrowser]
+input_path = '~/.config/tinct/templates/qutebrowser/tinct-colors.py'
+output_path = '~/.config/qutebrowser/tinct-colors.py'
+post_hook = 'pgrep -x qutebrowser >/dev/null && qutebrowser ":config-source" >/dev/null 2>&1; true'
+
+# Telegram cannot reload a theme by itself: open this file in Telegram
+# (send it to Saved Messages and tap it) and press Apply after a change.
+[templates.telegram]
+input_path = '~/.config/tinct/templates/telegram/tinct.tdesktop-palette'
+output_path = '~/.config/telegram/tinct.tdesktop-palette'
+
+# Same map under the name MiniMeters' saved presets use ("MaterialYou1").
+[templates.minimeters-presets]
+input_path = '~/.config/tinct/templates/minimeters/MaterialYou.map'
+output_path = '~/.config/MiniMeters/colormaps/MaterialYou1.map'
+
+# Live colours for the website style: the tinct-live userscript polls this
+# and sets the --m3-* variables on every page, so no style reinstall is needed.
+[templates.stylus_vars]
+input_path = '~/.config/tinct/templates/firefox/vars.json'
+output_path = '~/.local/share/stylus-themes/vars.json'
+
+# The userscript itself, served for a one-click Violentmonkey install.
+[templates.stylus_live_script]
+input_path = '~/.config/tinct/templates/firefox/tinct-live.user.js'
+output_path = '~/.local/share/stylus-themes/tinct-live.user.js'
+
+# Blender interface theme (from its 5.2 factory dark theme). A startup script,
+# ~/.config/blender/5.2/scripts/startup/tinct_theme.py, applies it at launch
+# and re-applies it whenever this file changes, so open Blenders follow too.
+[templates.blender]
+input_path = '~/.config/tinct/templates/blender/tinct.xml'
+output_path = '~/.config/blender/5.2/scripts/presets/interface_theme/tinct.xml'
+
+[templates.iidecor_wezterm]
+input_path = '~/.config/tinct/templates/ii-decor/wezterm.json'
+output_path = '~/.config/hypr/ii-decor.d/wezterm.json'
+post_hook = 'hyprctl iidecor reload >/dev/null 2>&1 || true'
+
+[templates.iidecor_zash]
+input_path = '~/.config/tinct/templates/ii-decor/zash.json'
+output_path = '~/.config/hypr/ii-decor.d/zash.json'
+post_hook = 'hyprctl iidecor reload >/dev/null 2>&1 || true'

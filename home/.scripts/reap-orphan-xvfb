@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Kill Xvfb instances that nothing owns any more.
+#
+# WHY
+# Headless test runs (tauri, playwright, chrome-headless) start an Xvfb and are
+# supposed to tear it down. When the harness is killed instead of exiting, the
+# Xvfb survives, reparents to init, and keeps a software rasteriser alive for a
+# display nobody can see. On this machine that pattern once cost 20+ cores and
+# 82W of draw while the laptop sat "idle", and a 2.5h-old orphan was still
+# present the day this was written.
+#
+# SAFETY
+# Two conditions must BOTH hold before anything is killed:
+#   1. the process is orphaned (parent is PID 1) — a live harness always shows
+#      as the parent, so an in-use Xvfb can never match;
+#   2. it is older than MIN_AGE — a just-started one that has not yet been
+#      claimed is left alone.
+# It also refuses to touch a display that still has connected clients.
+set -uo pipefail
+
+MIN_AGE=${MIN_AGE:-1800}   # seconds
+
+log() { printf '%s reap-orphan-xvfb: %s\n' "$(date -Is)" "$*"; }
+
+killed=0
+for pid in $(pgrep -x Xvfb 2>/dev/null); do
+    [ -d "/proc/$pid" ] || continue
+
+    ppid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)
+    [ "${ppid:-0}" = "1" ] || continue          # still owned by a live harness
+
+    # Age from /proc, not ps, so a weird locale or ps format cannot mislead it.
+    start=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)
+    hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+    up=$(awk '{print int($1)}' /proc/uptime 2>/dev/null)
+    age=$(( up - start / hz ))
+    [ "$age" -ge "$MIN_AGE" ] || continue
+
+    # Which display is it serving? Refuse if anything is still connected.
+    disp=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -m1 '^:' || true)
+    if [ -n "${disp:-}" ]; then
+        sock="/tmp/.X11-unix/X${disp#:}"
+        if [ -S "$sock" ] && command -v ss >/dev/null 2>&1; then
+            # Peers on the socket other than Xvfb itself mean real clients.
+            peers=$(ss -xp 2>/dev/null | grep -c "$sock" || true)
+            if [ "${peers:-0}" -gt 1 ]; then
+                log "skip pid $pid ($disp): $peers connections still open"
+                continue
+            fi
+        fi
+    fi
+
+    log "killing orphan pid $pid ${disp:-?}, age ${age}s, parent init"
+    kill "$pid" 2>/dev/null
+    killed=$((killed + 1))
+done
+
+# Give them a chance to exit cleanly, then insist.
+if [ "$killed" -gt 0 ]; then
+    sleep 3
+    for pid in $(pgrep -x Xvfb 2>/dev/null); do
+        ppid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)
+        [ "${ppid:-0}" = "1" ] || continue
+        kill -9 "$pid" 2>/dev/null && log "pid $pid ignored SIGTERM, sent SIGKILL"
+    done
+    log "reaped $killed orphan(s)"
+fi
+
+exit 0

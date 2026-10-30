@@ -1,0 +1,89 @@
+#!/bin/sh
+# KinetiX touchpad telemetry.
+#
+# The KinetiX daemon grabs ONE device (the mouse) and publishes
+# /dev/shm/kinetix-telemetry.json. It has no touchpad support and ships as a
+# binary, so the touchpad is fed separately here: libinput reports the
+# touchpad's motion deltas, gawk turns them into the same speed/angle shape
+# the UI already understands, and the result lands in a parallel file.
+#
+# The UI treats whichever file moved most recently as the active input method,
+# which is why every sample carries a timestamp.
+#
+# Usage: kinetix-touchpad [--device /dev/input/eventN] [--test]
+#   --test reads libinput-format lines from stdin and prints the parsed
+#   samples, so the parser can be exercised without touching the hardware.
+
+OUT=/dev/shm/kinetix-touchpad.json
+DEV=""
+TEST=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --device) DEV="$2"; shift 2 ;;
+        --test)   TEST=1; shift ;;
+        *)        shift ;;
+    esac
+done
+
+# Find the touchpad by CAPABILITY rather than by name: names are
+# vendor-specific and change with the machine, but only a touchpad reports a
+# tap-to-click setting.
+if [ -z "$DEV" ]; then
+    DEV=$(libinput list-devices 2>/dev/null | awk '
+        /^Kernel:/       { kernel = $2 }
+        /^Tap-to-click:/ { if ($2 != "n/a" && kernel != "") { print kernel; exit } }
+    ')
+fi
+
+# Shared parser. Reads libinput debug-events on stdin; with out="" it prints
+# samples for --test, otherwise it rewrites the telemetry file in place.
+PARSER='
+    function stamp() { return systime() * 1000 }
+    function publish(s, a, act,   tmp) {
+        if (out == "") { printf "%.4f %.4f %d\n", s, a, act; fflush(); return }
+        # Write-then-rename: the UI watches this path, and a half-written file
+        # would hand it invalid JSON to parse.
+        tmp = out ".tmp"
+        # Parenthesised on purpose: in `printf fmt, args > file` awk binds the
+        # ">" to the LAST ARGUMENT as a comparison, not as a redirect, so the
+        # file is never written and the last field prints as 0/1.
+        printf("{\"live_speed\":%.4f,\"live_angle\":%.4f,\"active\":%d,\"ts\":%d}\n",
+               s, a, act, stamp()) > tmp
+        close(tmp)
+        system("mv -f " tmp " " out)
+    }
+    BEGIN { if (out != "") publish(0, 0, 0) }
+    /POINTER_MOTION/ {
+        # " event11  POINTER_MOTION  +1.23s   -3.00/  4.00 ( -3.00/ +4.00 unaccelerated)"
+        # Drop the bracketed unaccelerated pair first, then read the dx/dy that
+        # remains — otherwise the second pair overwrites the first.
+        line = $0
+        sub(/\(.*/, "", line)
+        n = split(line, f, /[ \t]+/)
+        dx = 0; dy = 0
+        for (i = 1; i <= n; i++) {
+            if (f[i] ~ /\//) {
+                split(f[i], p, "/")
+                dx = p[1] + 0
+                if (p[2] != "") dy = p[2] + 0
+                else if (i < n) dy = f[i+1] + 0
+                break
+            }
+        }
+        publish(sqrt(dx*dx + dy*dy), atan2(dy, dx), 1)
+        next
+    }
+'
+
+if [ "$TEST" = "1" ]; then
+    exec gawk -v out="" "$PARSER"
+fi
+
+[ -z "$DEV" ] && { echo "kinetix-touchpad: no touchpad found" >&2; exit 1; }
+echo "kinetix-touchpad: reading $DEV" >&2
+
+# stdbuf keeps libinput line-buffered; without it the pipe stalls in 4K blocks
+# and the dot lags seconds behind the finger.
+exec stdbuf -oL libinput debug-events --device "$DEV" 2>/dev/null \
+   | gawk -v out="$OUT" "$PARSER"

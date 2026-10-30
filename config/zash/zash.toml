@@ -1,0 +1,33 @@
+# zash — settings. Every line is optional; delete one to get the default back.
+# Changes apply the next time zash starts.
+
+# The shell to start (your desktop says bash; this is what you use).
+shell = "/bin/zsh"
+# What a plain zash window runs: zeit, so sessions survive and the tmux keys work.
+# Leave it out for a bare shell; `zash -- PROGRAM` always runs that program.
+command = "$HOME/.local/bin/zeit new"
+
+# The font and its size in points (as WezTerm counts them).
+font = "MonaspiceNe Nerd Font"
+size = 11.5
+# Line height as a multiple of the font size.
+line_height = 1.2
+# OpenType features of the font (stylistic sets, character variants).
+features = ["cv06", "cv14", "cv32", "ss04", "ss07", "ss09"]
+# Space around the text, in pixels.
+padding = 0
+# Lines kept for scrolling back.
+scrollback = 10000
+# The cursor glides to where it goes (milliseconds; 0 = it jumps), with a short smear.
+cursor_animation = 90
+cursor_trail = true
+# Colours: the file tinct writes for WezTerm, so zash follows the wallpaper.
+colors = "~/.config/wezterm/tinct_colors.lua"
+
+# a GLSL panel for the Claude zfloat (panel_shader.rs; edit the file, it reloads while shown)
+[zfloat.shaders]
+Claude = "ps3/xmb"
+
+[layers]
+# the float shadow over the text beneath it too, so that text darkens
+shadow_over = true

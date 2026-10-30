@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# showme - bring up a part of the quickshell `ii` shell, capture just it, put it back.
+#
+# Written because UI work kept ending in "I can't see it, please check": the dock
+# auto-hides, popups vanish before a screenshot, panels need opening. A dock
+# change once broke the whole dock for a minute and nobody saw. This makes the
+# check self-serve: open -> wait for the animation -> grim ONLY the shell's own
+# layer(s) -> restore. Never a full-screen capture.
+#
+# How it finds what to capture: Hyprland lists every layer surface with its
+# namespace and geometry (`hyprctl layers -j`). `open` diffs that list before
+# and after, so a panel is captured without knowing its namespace.
+# Geometry is logical px; grim -g takes logical px and renders at the output's
+# scale (1.6 here), so images are sharp.
+#
+# Writes PNGs to $SHOWME_DIR (default: /tmp/showme) and prints each path.
+
+set -uo pipefail
+OUT="${SHOWME_DIR:-/tmp/showme}"
+WAIT="${SHOWME_WAIT:-0.6}"
+QS=(qs -c ii)
+
+usage() {
+    cat <<'EOF'
+Usage: showme <what> [args]
+
+  dock                 reveal the dock (if hidden), capture it, hide it again
+  notify [body]        send a test notification, capture the popup
+  open <target> [open-fn] [close-fn]
+                       call `qs -c ii ipc call <target> <open-fn>` (default
+                       open), capture every shell layer that appeared, then
+                       call <close-fn> (default close)
+  layer <namespace>    capture a layer already on screen (substring match,
+                       e.g. "dock", "notificationPopup", "bar")
+  list                 list the shell's layers and their geometry
+  -h, --help           this help
+
+Environment: SHOWME_MONITOR (default: the focused one), SHOWME_DIR (output dir, default /tmp/showme),
+             SHOWME_WAIT (seconds to let animations settle, default 0.6)
+
+Examples:
+  showme dock
+  showme notify 'Hello **bold**&lt;br/&gt;second line'
+  showme open torrents
+  showme open sidebarLeft
+  showme layer bar
+
+Needs: a running `qs -c ii`, hyprctl, jq, grim. IPC targets: `qs -c ii ipc show`.
+EOF
+}
+
+die() { echo "showme: $*" >&2; exit 1; }
+for b in hyprctl jq grim qs; do command -v "$b" >/dev/null || die "$b is not installed"; done
+mkdir -p "$OUT"
+
+# One monitor at a time: every shell layer exists once per screen, and a union
+# across two screens is one huge, mostly-empty image.
+MON="${SHOWME_MONITOR:-$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')}"
+
+# "namespace<TAB>x,y wxh" for every quickshell layer on $MON with a real size.
+layers() {
+    hyprctl layers -j | jq -r --arg m "$MON" '.[$m].levels | to_entries[] | .key as $lvl | .value[]? | select(.namespace|startswith("quickshell")) | select(.w > 1 and .h > 1) | "\(.namespace)\t\(.x),\(.y) \(.w)x\(.h)\t\($lvl)"' | sort -u
+}
+
+# capture NAME GEOM [LEVEL] -> prints the png path. Levels 0-2 sit under a
+# fullscreen window (the capture would be the game); 3 (overlay) is drawn above.
+shot() {
+    local name="$1" geom="$2" lvl="${3:-2}" f
+    if [ "$lvl" -lt 3 ] && fullscreen_here; then
+        echo "showme: a fullscreen window covers $MON and $name sits under it - the capture would show the window. Try SHOWME_MONITOR=<other screen>, or later." >&2; return 1
+    fi
+    f="$OUT/$(echo "$name" | tr -c 'A-Za-z0-9_-' '_' | sed 's/_*$//').png"
+    grim -g "$geom" "$f" 2>/dev/null || { echo "showme: grim failed for $name ($geom)" >&2; return 1; }
+    echo "$f"
+}
+
+# The bounding box of several "x,y wxh" lines, so one panel made of several
+# surfaces lands in one image.
+union() {
+    awk -F'[ ,x]' '{x=$1; y=$2; r=$1+$3; b=$2+$4
+        if (NR==1 || x<X) X=x; if (NR==1 || y<Y) Y=y; if (r>R) R=r; if (b>B) B=b}
+        END {if (NR) printf "%d,%d %dx%d\n", X, Y, R-X, B-Y}'
+}
+
+capture_layer() {
+    local pat="$1" geom lvl
+    geom=$(layers | awk -F'\t' -v p="$pat" 'index($1,p) {print $2}' | union)
+    lvl=$(layers | awk -F'\t' -v p="$pat" 'index($1,p) {print $3}' | sort -n | head -1)
+    [ -n "$geom" ] || die "no visible shell layer matching \"$pat\" (try: showme list)"
+    # The popup layer is a full-height strip; capturing all of it photographed
+    # whatever window sat behind it. Popups stack from the top: keep 450px.
+    case "$pat" in *notificationPopup*)
+        geom=$(echo "$geom" | awk -F'[ x]' '{h = ($3 > 450) ? 450 : $3; printf "%s %sx%d\n", $1, $2, h}') ;;
+    esac
+    shot "$pat" "$geom" "$lvl"
+}
+
+# A fullscreen window draws over the shell's layers, so the capture would be
+# the game/video instead - useless, and a picture of the user's screen. Refuse.
+fullscreen_here() {
+    local ws
+    ws=$(hyprctl monitors -j | jq -r --arg m "$MON" '.[] | select(.name==$m) | .activeWorkspace.id')
+    hyprctl clients -j | jq -e --argjson w "${ws:-0}" '[.[] | select(.workspace.id==$w and .fullscreen>=2)] | length > 0' >/dev/null
+}
+case "${1:-}" in
+    -h|--help|"") usage; [ -n "${1:-}" ] || exit 1 ;;
+    list) layers | column -t -s $'\t' ;;
+    layer)
+        [ $# -ge 2 ] || die "layer needs a namespace (try: showme list)"
+        capture_layer "$2" ;;
+    dock)
+        # The dock sits under fullscreen windows: refuse before revealing it.
+        fullscreen_here && die "a fullscreen window covers $MON - the dock is under it. Try SHOWME_MONITOR=<other screen>, or later."
+        state=$("${QS[@]}" ipc call dock toggle 2>/dev/null) || die "dock IPC failed - is the shell running?"
+        # toggle reports the NEW state; if that made it hidden, it was showing before.
+        [ "$state" = "hidden" ] && "${QS[@]}" ipc call dock toggle >/dev/null
+        sleep "$WAIT"
+        capture_layer "quickshell:dock"
+        [ "$state" = "shown" ] && "${QS[@]}" ipc call dock toggle >/dev/null
+        ;;
+    notify)
+        body="${2:-Test body with **bold**, *italic*, \`code\` and https://example.com}"
+        notify-send -a "showme" "showme test" "$body" || die "notify-send failed"
+        sleep "$WAIT"
+        capture_layer "quickshell:notificationPopup"
+        ;;
+    open)
+        [ $# -ge 2 ] || die "open needs an IPC target (list: qs -c ii ipc show)"
+        target="$2"; openfn="${3:-open}"; closefn="${4:-close}"
+        before=$(layers)
+        "${QS[@]}" ipc call "$target" "$openfn" >/dev/null 2>&1 || die "ipc call $target $openfn failed"
+        sleep "$WAIT"
+        new=$(comm -13 <(echo "$before") <(layers))
+        if [ -z "$new" ]; then
+            echo "showme: nothing new appeared after '$target $openfn' (already open? try: showme layer ...)" >&2
+        else
+            echo "$new" | cut -f1 | sed 's/^/  appeared: /' >&2
+            shot "$target" "$(echo "$new" | cut -f2 | union)" "$(echo "$new" | cut -f3 | sort -n | head -1)"
+        fi
+        "${QS[@]}" ipc call "$target" "$closefn" >/dev/null 2>&1 || true
+        ;;
+    *) die "unknown command '$1' (see --help)" ;;
+esac

@@ -1,0 +1,16 @@
+context.objects = [
+  {   factory = adapter
+      args = {
+          factory.name         = api.alsa.pcm.sink
+          node.name            = "dj808-playback"
+          node.description     = "DJ-808 Playback"
+          media.class          = "Audio/Sink"
+          api.alsa.path        = "hw:DJ808"
+          api.alsa.period-size = 256
+          audio.rate           = 48000
+          audio.channels       = 12
+          audio.position       = "FL,FR,FC,LFE,RL,RR,FLC,FRC,RC,SL,SR,TC"
+          node.passive         = true
+      }
+  }
+]

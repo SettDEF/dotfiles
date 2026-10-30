@@ -1,0 +1,26 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Biscuit"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#3a2820"
+orange1 = "#4a3328"
+orange2 = "#5e4332"
+orange3 = "#735542"
+orange4 = "#8f6e54"
+orange5 = "#ad8f72"
+orange6 = "#c8b094"
+grey2 = "#dccfb6"
+grey3 = "#eedcc4"
+grey4 = "#f5e8d2"
+yellow1 = "#f5d68a"
+orange7 = "#f0a45a"
+orange8 = "#cb6e2c"
+red1 = "#a04a26"
+red2 = "#7a3019"
+
+[roles]
+background = "#3a2820"
+foreground = "#f5e8d2"
+primary = "#f0a45a"

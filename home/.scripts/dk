@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# key_daemon.sh: Centralized key event daemon for AwesomeWM, WezTerm, and Neovim.
+# This script listens for events (via a FIFO) and dispatches them based on state.
+# Usage: Launch this daemon in your startup (e.g., via AwesomeWM or a systemd user service).
+
+# Path for the FIFO (named pipe) and state file.
+FIFO="/tmp/key_daemon_fifo"
+STATE_FILE="/tmp/key_daemon_state"
+
+# Create FIFO if it doesn't exist.
+if [ ! -p "$FIFO" ]; then
+    mkfifo "$FIFO"
+fi
+
+# Default state (form_open=0 means no form is active in Neovim).
+form_open=0
+
+# Load the saved state from file, if available.
+function load_state {
+    if [ -f "$STATE_FILE" ]; then
+        source "$STATE_FILE"
+    else
+        form_open=0
+    fi
+}
+
+# Save the current state to file.
+function save_state {
+    echo "form_open=$form_open" > "$STATE_FILE"
+}
+
+# Function: Dispatch the KEY_SUPER_ENTER event.
+function dispatch_super_enter {
+    load_state
+    if [ "$form_open" -eq 1 ]; then
+        # If a form is open in Neovim, forward the event.
+        if command -v nvr >/dev/null 2>&1; then
+            nvr --remote-send '<Esc>:echo "Form event received"<CR>'
+            echo "$(date) - Dispatched event to Neovim (form active)" >> /tmp/key_daemon.log
+        else
+            echo "$(date) - nvr not found. Cannot dispatch to Neovim." >> /tmp/key_daemon.log
+        fi
+    else
+        # Otherwise, let AwesomeWM/WezTerm handle it (or you can launch WezTerm).
+        # For example, we can launch wezterm if it's not running:
+        if ! pgrep -x "wezterm" > /dev/null; then
+            wezterm &
+            echo "$(date) - Launched WezTerm" >> /tmp/key_daemon.log
+        else
+            echo "$(date) - WezTerm is already running. Key event not processed in daemon." >> /tmp/key_daemon.log
+        fi
+    fi
+}
+
+# Main loop: Read events from the FIFO.
+echo "$(date) - key_daemon started" >> /tmp/key_daemon.log
+while true; do
+    if read -r event < "$FIFO"; then
+        case "$event" in
+            KEY_SUPER_ENTER)
+                dispatch_super_enter
+                ;;
+            SET_FORM_OPEN)
+                form_open=1
+                save_state
+                echo "$(date) - Set state: form open" >> /tmp/key_daemon.log
+                ;;
+            SET_FORM_CLOSED)
+                form_open=0
+                save_state
+                echo "$(date) - Set state: form closed" >> /tmp/key_daemon.log
+                ;;
+            *)
+                echo "$(date) - Unknown event received: $event" >> /tmp/key_daemon.log
+                ;;
+        esac
+    fi
+done

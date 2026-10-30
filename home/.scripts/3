@@ -1,0 +1,136 @@
+#!/bin/bash
+
+# Temporary output directory for modified wallpapers
+TMP_DIR="/tmp/color_palette_session"
+mkdir -p "$TMP_DIR"
+
+# Source wallpaper directory
+WALLPAPER_DIR="$HOME/.wallpapers"
+
+# Define your custom color palette
+colors=(
+    "#F1C6D6" "#E5B9D9" "#D7A0D1" "#C5E1A5" "#A5D6A7" "#81D4FA"
+    "#1B1A1A" "#4D4F5F" "#D6D6EF" "#d0a7a7" "#d0b07d" "#a0c6a3"
+    "#7da7d0" "#a39dd0" "#f1f1f1" "#d3d3d3" "#b8b8b8" "#999999"
+    "#1c1b1e" "#4e4439" "#d9c7a1" "#f3e4b4" "#b8f7b4" "#a6f0d2"
+    "#b3f9f4" "#c7fffc" "#f3fffb" "#20202F" "#CF737F" "#a3c6a8"
+    "#e8c28c" "#81a1c1" "#c49ac6" "#88c0d0" "#e5e9f0" "#323242"
+    "#e46876" "#b8dbb2" "#f3e2b0" "#a3cfee" "#d5a6dd" "#aee3f3"
+    "#eceff4" "#d98e8e" "#d8b165" "#d8c84e" "#a8c68a" "#8cb3c4"
+    "#82A8EF" "#AE93E3" "#d39edE" "#EEBEEE" "#b28ff9" "#a398d8"
+    "#94a1b7" "#85a896" "#96b47d" "#b2c164" "#d7ce5a" "#f2dc73"
+    "#ffeb8d" "#FF4C4C" "#FF6A3D" "#FF7A3A" "#FF9B45" "#FFB747"
+    "#D1E34C" "#62C400" "#4DBB59" "#3B9AC0" "#4488C2" "#7F55B9"
+    "#A74EAD" "#E16C87" "#F14571" "#FFB06F" "#F3A04A" "#F7D6D6"
+    "#F7B8B8" "#F5C6A5" "#F2D580" "#F1D95B" "#D1E9A0" "#A7C8E8"
+    "#A1C5F2" "#A1B6D9" "#C7B2D4" "#B89FD1" "#F4A8B8" "#D7E9F0"
+    "#F1D0D8" "#D0E3C4" "#F0F0C7"
+)
+
+# Create the palette image
+PALETTE_FILE="$TMP_DIR/color_palette.png"
+
+# Create a series of 1x1 images for each color and append them vertically
+color_args=()
+for color in "${colors[@]}"; do
+    color_args+=("-size" "1x1" "xc:$color")
+done
+
+magick "${color_args[@]}" -append "$PALETTE_FILE"
+
+# Check if palette was created successfully
+if [[ ! -f "$PALETTE_FILE" ]]; then
+    echo "Failed to create color palette file"
+    exit 1
+fi
+
+if [[ "$1" ]]; then
+    WALLPAPER_DIR=$1
+fi
+
+
+# Check if wallpapers are available
+mapfile -t wallpapers < <(find "$WALLPAPER_DIR" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \))
+wallpaper_count=${#wallpapers[@]}
+
+if [[ $wallpaper_count -eq 0 ]]; then
+    echo "No wallpapers found in $WALLPAPER_DIR. Please add some wallpapers."
+    exit 1
+fi
+
+echo "Detected $wallpaper_count wallpaper(s)."
+
+# Function to shuffle wallpapers
+shuffle_wallpapers() {
+    local -a arr=("$@")
+    local i temp j
+    for ((i = ${#arr[@]} - 1; i > 0; i--)); do
+        j=$((RANDOM % (i + 1)))
+        temp="${arr[i]}"
+        arr[i]="${arr[j]}"
+        arr[j]="$temp"
+    done
+    printf '%s\n' "${arr[@]}"
+}
+
+# Shuffle the wallpapers array
+mapfile -t shuffled_wallpapers < <(shuffle_wallpapers "${wallpapers[@]}")
+
+# Function to get wallpaper resolution
+get_resolution() {
+    magick identify -format "%wx%h" "$1"
+}
+
+# Function to check if resolution is close to WQHD
+is_close_to_wqhd() {
+    local width height
+    width=$(echo "$1" | cut -d'x' -f1)
+    height=$(echo "$1" | cut -d'x' -f2)
+    
+    [[ "$width" -eq 2560 && "$height" -ge 1390 && "$height" -le 1450 ]]
+}
+
+# Get the number of connected monitors
+monitor_count=$(xrandr --listmonitors | awk '/Monitors:/ {print $2}')
+
+# Array for generated wallpapers
+generated_wallpapers=()
+
+# Generate wallpapers with the closest colors from the palette
+for ((i = 0; i < monitor_count; i++)); do
+    if [[ "wc ${shuffled_wallpapers}" ]];
+    wallpaper="${shuffled_wallpapers[$i]}"
+    echo -e " \e[1;32mFound\e[0m and use \e[1;35m$wallpaper\e[0m"
+    output="$TMP_DIR/wallpaper_$i.png"
+
+    resolution=$(get_resolution "$wallpaper")
+
+    if is_close_to_wqhd "$resolution"; then
+        # Keep the original resolution
+        magick "$wallpaper" -remap "$PALETTE_FILE" "$output"
+    else
+        # Resize only if it's not WQHD-like
+        magick "$wallpaper" \
+            -resize "2560x1440^" \
+            -gravity center \
+            -extent 2560x1440 \
+            -remap "$PALETTE_FILE" \
+            -depth 4 \
+            -quantize transparent \
+            -dither FloydSteinberg8x8 \
+            -colors 32 \
+            "$output"
+    fi
+
+            # -colors 4096 \
+    generated_wallpapers+=("$output")
+    echo -e "->\e[2;31mGenerated\e[0m wallpaper: \e[0;37m$output"
+done
+
+# Apply wallpapers to screens
+feh --bg-fill "${generated_wallpapers[@]}"
+
+echo "All screens have been updated with customized wallpapers!"
+
+# Cleanup temporary files
+trap 'rm -rf "$TMP_DIR"' EXIT

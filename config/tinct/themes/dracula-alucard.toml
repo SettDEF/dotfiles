@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Alucard"
+dark = false
+derived = true
+
+[colors]
+grey1 = "#fffbeb"
+grey2 = "#ece9df"
+grey3 = "#dedccf"
+grey4 = "#ceccc0"
+grey5 = "#bcbab3"
+grey6 = "#cfcfde"
+yellow1 = "#6c664b"
+grey7 = "#1f1f1f"
+red1 = "#cb3a2a"
+orange1 = "#a34d14"
+yellow2 = "#846e15"
+green1 = "#14710a"
+blue1 = "#036a96"
+purple1 = "#644ac9"
+red2 = "#a3144d"
+grey8 = "#dcdeef"
+
+[roles]
+background = "#fffbeb"
+foreground = "#1f1f1f"
+primary = "#644ac9"

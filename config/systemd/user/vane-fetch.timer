@@ -1,0 +1,11 @@
+[Unit]
+Description=vane: fetch the newest GFS forecast every 6 h
+
+[Timer]
+# runs appear ~4–5 h after 00/06/12/18 UTC
+OnCalendar=*-*-* 04,10,16,22:40:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

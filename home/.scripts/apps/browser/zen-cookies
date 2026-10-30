@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""zen-cookies - keep Zen's cookies recoverable.
+
+Why: Firefox renames cookies.sqlite to cookies.sqlite.bak and starts an empty
+one on almost any startup error, disk-full included, and the next incident
+overwrites that .bak. This happened on 2026-09-24 (full btrfs) and logged
+every site out. Hourly backups plus a loud alert make it a one-command fix.
+
+  zen-cookies backup     snapshot now; alert if the cookie count collapsed
+  zen-cookies list       show backups, newest first
+  zen-cookies restore    restore the newest good backup (Zen must be closed),
+                         keeping any cookies set since then
+  zen-cookies import SRC add unexpired cookies from another cookies.sqlite
+                         that this profile lacks (Zen must be closed)
+Options: --profile DIR, --from FILE (restore), --no-merge (restore), --dry-run (import)
+Run hourly by ~/.config/systemd/user/zen-cookie-backup.timer.
+"""
+import argparse, datetime, os, shutil, sqlite3, subprocess, sys, time
+from pathlib import Path
+
+PROFILE = Path.home() / ".zen/woimiwmt.Default (unofficial)"
+STORE = Path(os.environ.get("ZEN_COOKIE_STORE", Path.home() / ".local/share/zen-cookie-backups"))
+KEEP_HOURLY, KEEP_DAYS = 48, 30
+# A drop below this share of the last good backup is treated as a wipe.
+COLLAPSE = 0.5
+
+
+def notify(title, body, urgency="critical"):
+    subprocess.run(["notify-send", "-u", urgency, "-a", "zen-cookies", title, body],
+                   check=False)
+
+
+def count(db):
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        return c.execute("select count(*) from moz_cookies").fetchone()[0]
+    finally:
+        c.close()
+
+
+def backups():
+    return sorted(STORE.glob("cookies-*.sqlite"), reverse=True)
+
+
+def good_backups():
+    return [b for b in backups() if "-SUSPECT" not in b.name]
+
+
+def browser_running(profile):
+    """True if a live process holds this profile's lock (lock -> host:+pid)."""
+    try:
+        pid = int(os.readlink(profile / "lock").rsplit("+", 1)[1])
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def snapshot(src, tries=5):
+    """Zen locks the live DB, so copy it with its WAL and check the copy."""
+    import tempfile, time
+    for _ in range(tries):
+        tmp = Path(tempfile.mkdtemp(prefix="zen-cookies-"))
+        for tail in ("", "-wal"):
+            f = Path(str(src) + tail)
+            if f.exists():
+                shutil.copy2(f, tmp / ("cookies.sqlite" + tail))
+        try:
+            c = sqlite3.connect(tmp / "cookies.sqlite")
+            ok = c.execute("pragma quick_check").fetchone()[0] == "ok"
+            c.execute("select count(*) from moz_cookies").fetchone()
+            c.close()
+            if ok:
+                return tmp / "cookies.sqlite"
+        except sqlite3.Error:
+            pass
+        shutil.rmtree(tmp, ignore_errors=True)
+        time.sleep(2)
+    return None
+
+
+def backup(profile):
+    src = profile / "cookies.sqlite"
+    if not src.exists():
+        notify("Zen cookies missing", f"{src} does not exist.")
+        return 1
+    STORE.mkdir(parents=True, exist_ok=True)
+    snap = snapshot(src)
+    if snap is None:
+        print("could not get a consistent copy (Zen writing?); next run will retry")
+        return 0
+    now = count(snap)
+    last = good_backups()
+    before = count(last[0]) if last else 0
+    suspect = before >= 50 and now < before * COLLAPSE
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
+    dest = STORE / f"cookies-{stamp}{'-SUSPECT' if suspect else ''}.sqlite"
+    s, d = sqlite3.connect(snap), sqlite3.connect(dest)
+    with d:
+        s.backup(d)
+    s.close(); d.close()
+    shutil.rmtree(snap.parent, ignore_errors=True)
+    if suspect:
+        notify("Zen lost its cookies",
+               f"{before} → {now} cookies. Close Zen and run: zen-cookies restore")
+    prune()
+    print(f"{dest.name}: {now} cookies" + (f" (SUSPECT, last good had {before})" if suspect else ""))
+    return 0
+
+
+def prune():
+    """Keep the last 48 good snapshots plus one per day for 30 days; suspects for 48h."""
+    good = good_backups()
+    keep = set(good[:KEEP_HOURLY])
+    days = {}
+    for b in good:
+        days.setdefault(b.name[8:16], b)  # newest of each day
+    cutoff = (datetime.date.today() - datetime.timedelta(days=KEEP_DAYS)).strftime("%Y%m%d")
+    keep |= {b for day, b in days.items() if day >= cutoff}
+    if good:
+        keep.add(good[0])
+    for b in good:
+        if b not in keep:
+            b.unlink()
+    old = (datetime.datetime.now() - datetime.timedelta(hours=48)).strftime("%Y%m%d-%H%M")
+    for b in backups():
+        if "-SUSPECT" in b.name and b.name[8:21] < old:
+            b.unlink()
+
+
+def restore(profile, source, merge):
+    if browser_running(profile):
+        print("Zen is running - close it first (its shutdown would overwrite the restore).")
+        return 1
+    src = Path(source) if source else (good_backups() or [None])[0]
+    if not src or not src.exists():
+        print("no good backup found")
+        return 1
+    live = profile / "cookies.sqlite"
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    aside = STORE / f"pre-restore-{stamp}.sqlite"
+    STORE.mkdir(parents=True, exist_ok=True)
+    if live.exists():
+        shutil.copy2(live, aside)
+    for tail in ("-wal", "-shm"):
+        (profile / f"cookies.sqlite{tail}").unlink(missing_ok=True)
+    shutil.copy2(src, live)
+    db = sqlite3.connect(live)
+    if merge and aside.exists():
+        # Newer wins: logins made since the backup are kept.
+        db.execute("attach ? as recent", (str(aside),))
+        cols = ",".join(r[1] for r in db.execute("pragma table_info(moz_cookies)") if r[1] != "id")
+        db.execute(f"insert or replace into moz_cookies ({cols}) select {cols} from recent.moz_cookies")
+        db.commit()
+        db.execute("detach recent")
+    ok = db.execute("pragma integrity_check").fetchone()[0]
+    n = db.execute("select count(*) from moz_cookies").fetchone()[0]
+    db.close()
+    print(f"restored {src.name} -> {n} cookies, integrity {ok}; previous file kept as {aside.name}")
+    return 0 if ok == "ok" else 1
+
+
+def import_from(profile, source, dry):
+    """Existing cookies always win; only unexpired, non-container ones come in."""
+    if not dry and browser_running(profile):
+        print("Zen is running - close it first.")
+        return 1
+    live = profile / "cookies.sqlite"
+    snap = snapshot(Path(source))
+    if snap is None:
+        print(f"cannot read {source}")
+        return 1
+    if dry:
+        target = snapshot(live)
+    else:
+        STORE.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(live, STORE / f"pre-import-{stamp}.sqlite")
+        target = live
+    db = sqlite3.connect(target)
+    db.execute("attach ? as src", (str(snap),))
+    v1 = db.execute("pragma user_version").fetchone()[0]
+    v2 = db.execute("pragma src.user_version").fetchone()[0]
+    if v1 != v2:
+        print(f"schema v{v2} differs from v{v1}; not importing")
+        return 1
+    mine = {r[1] for r in db.execute("pragma table_info(moz_cookies)")} - {"id"}
+    cols = ",".join(r[1] for r in db.execute("pragma src.table_info(moz_cookies)") if r[1] in mine)
+    now = time.time()
+    # expiry is ms in newer schemas, s in older ones.
+    alive = f"(case when expiry > 1e11 then expiry/1000.0 else expiry end) > {now}"
+    hosts0 = db.execute("select count(distinct host) from moz_cookies").fetchone()[0]
+    n0 = db.execute("select count(*) from moz_cookies").fetchone()[0]
+    db.execute(f"""insert or ignore into moz_cookies ({cols})
+                   select {cols} from src.moz_cookies
+                   where {alive} and originAttributes not like '%userContextId%'""")
+    db.commit()
+    n1 = db.execute("select count(*) from moz_cookies").fetchone()[0]
+    hosts1 = db.execute("select count(distinct host) from moz_cookies").fetchone()[0]
+    ok = db.execute("pragma integrity_check").fetchone()[0]
+    db.close()
+    shutil.rmtree(snap.parent, ignore_errors=True)
+    if dry:
+        shutil.rmtree(target.parent, ignore_errors=True)
+    print(f"{'would add' if dry else 'added'} {n1-n0} cookies, {hosts1-hosts0} new sites "
+          f"({n0} -> {n1}), integrity {ok}")
+    return 0 if ok == "ok" else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", choices=["backup", "list", "restore", "import"])
+    ap.add_argument("src", nargs="?")
+    ap.add_argument("--profile", type=Path, default=PROFILE)
+    ap.add_argument("--from", dest="source")
+    ap.add_argument("--no-merge", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    if a.cmd == "backup":
+        return backup(a.profile)
+    if a.cmd == "import":
+        if not a.src:
+            ap.error("import needs a source cookies.sqlite")
+        return import_from(a.profile, a.src, a.dry_run)
+    if a.cmd == "restore":
+        return restore(a.profile, a.source, not a.no_merge)
+    for b in backups():
+        print(f"{b.name:40} {count(b):6} cookies")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

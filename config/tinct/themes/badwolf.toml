@@ -1,0 +1,34 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Badwolf"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#1c1b1a"
+grey2 = "#f8f6f2"
+grey3 = "#ffffff"
+grey4 = "#000000"
+grey5 = "#d9cec3"
+grey6 = "#998f84"
+grey7 = "#857f78"
+grey8 = "#666462"
+grey9 = "#45413b"
+grey10 = "#35322d"
+grey11 = "#242321"
+grey12 = "#141413"
+yellow1 = "#fade3e"
+yellow2 = "#f4cf86"
+red1 = "#ff2c4b"
+green1 = "#8cffba"
+blue1 = "#0a9dff"
+orange1 = "#ffa724"
+green2 = "#aeee00"
+red2 = "#ff9eb8"
+orange2 = "#b88853"
+orange3 = "#c7915b"
+orange4 = "#88633f"
+
+[roles]
+background = "#1c1b1a"
+foreground = "#ffffff"
+primary = "#ff2c4b"

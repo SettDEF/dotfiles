@@ -1,0 +1,11 @@
+[Unit]
+Description=KinetiX Motion Physics Daemon (auto-resolves the mouse by name)
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.scripts/apps/knurl/kinetix-run
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

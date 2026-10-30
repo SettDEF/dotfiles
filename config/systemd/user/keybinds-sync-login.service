@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect app keybinds once at login
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/caesar/.config/quickshell/ii/scripts/keybinds-sync/keybinds-sync
+Nice=10
+
+[Install]
+WantedBy=default.target

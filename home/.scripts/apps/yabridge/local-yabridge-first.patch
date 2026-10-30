@@ -1,0 +1,25 @@
+diff --git a/src/common/process.cpp b/src/common/process.cpp
+index c450c06f..93d06c4f 100644
+--- a/src/common/process.cpp
++++ b/src/common/process.cpp
+@@ -86,13 +86,17 @@ std::vector<fs::path> get_augmented_search_path() {
+ 
+     std::vector<fs::path> search_path = split_path(path_env);
+ 
++    // local patch: the user's own yabridge (~/.local/share/yabridge) comes
++    // first, so a newer build there wins over a distro package in /usr/bin
+     // NOLINTNEXTLINE(concurrency-mt-unsafe)
+     if (const char* xdg_data_home = getenv("XDG_DATA_HOME")) {
+-        search_path.push_back(fs::path(xdg_data_home) / "yabridge");
++        search_path.insert(search_path.begin(),
++                           fs::path(xdg_data_home) / "yabridge");
+         // NOLINTNEXTLINE(concurrency-mt-unsafe)
+     } else if (const char* home_directory = getenv("HOME")) {
+-        search_path.push_back(fs::path(home_directory) / ".local" / "share" /
+-                              "yabridge");
++        search_path.insert(search_path.begin(), fs::path(home_directory) /
++                                                    ".local" / "share" /
++                                                    "yabridge");
+     }
+ 
+     return search_path;

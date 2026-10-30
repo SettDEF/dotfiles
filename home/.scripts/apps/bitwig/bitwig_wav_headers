@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# fix_bitwig_wav_headers
+# Automatically fixes ALL non-standard WAV headers (RF64/BW64/etc.) in a folder + subfolders
+# for full Bitwig compatibility. Run once and done.
+
+set -euo pipefail
+
+USAGE="Usage: $0 [-b] <folder_path>
+
+Options:
+  -b            No backups (overwrite originals directly - faster but riskier)
+  -h            Show this help
+
+The script is ALWAYS recursive (processes subfolders automatically).
+
+Example:
+  $0 ./MyDrumKit                  # with backups (safe)
+  $0 -b ./MyDrumKit                # no backups (fast)
+"
+
+BACKUP=true
+
+while getopts "bh" opt; do
+  case $opt in
+    b) BACKUP=false ;;
+    h) echo "$USAGE"; exit 0 ;;
+    *) echo "$USAGE"; exit 1 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [ $# -ne 1 ]; then
+  echo "Error: Please provide the folder path!"
+  echo "$USAGE"
+  exit 1
+fi
+
+FOLDER="$1"
+
+if [ ! -d "$FOLDER" ]; then
+  echo "Error: Folder not found: $FOLDER"
+  exit 1
+fi
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "Error: ffmpeg not found. Install it first (brew install ffmpeg / apt install ffmpeg / etc.)"
+  exit 1
+fi
+
+fixed_count=0
+
+# Detect non-standard WAV headers
+is_problematic_wav() {
+  local file="$1"
+  local header
+  header=$(dd if="$file" bs=1 count=12 2>/dev/null | xxd -p -l 12 2>/dev/null || echo "")
+  
+  [[ -z "$header" ]] && return 1
+  
+  local riff_type=${header:0:8}
+  local format_type=${header:16:8}
+  
+  # Standard RIFF WAVE = good
+  [[ "$riff_type" = "52494646" && "$format_type" = "57415645" ]] && return 1
+  
+  # Everything else (RF64, BW64, RIFX, etc.) = bad
+  return 0
+}
+
+# Find ALL .wav files recursively
+mapfile -t wav_files < <(find "$FOLDER" -type f -iname "*.wav" 2>/dev/null)
+
+total=${#wav_files[@]}
+echo "Scanning $total WAV file(s) in: $FOLDER (and subfolders)"
+echo
+
+for file in "${wav_files[@]}"; do
+  if is_problematic_wav "$file"; then
+    echo "Fixing: $file"
+    
+    if $BACKUP; then
+      cp "$file" "$file.bak" 2>/dev/null
+    fi
+    
+    # Rewrite as standard RIFF WAV (lossless)
+    if ffmpeg -i "$file" -c:a pcm_s32le -rf64 never -y "$file.tmp.wav" >/dev/null 2>&1 && \
+       mv "$file.tmp.wav" "$file"; then
+      echo "  → Fixed"
+      fixed_count=$((fixed_count + 1))
+      $BACKUP && echo "  → Backup saved: $file.bak"
+    else
+      echo "  → FAILED!"
+      rm -f "$file.tmp.wav"
+      $BACKUP && mv "$file.bak" "$file" 2>/dev/null
+    fi
+  fi
+done
+
+echo
+echo "=========================================="
+echo "Done! Fixed $fixed_count WAV file(s) total."
+echo "Your drum kit is now 100% Bitwig-ready."
+echo "=========================================="

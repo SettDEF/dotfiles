@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Hopscotch"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#322931"
+grey2 = "#433b42"
+grey3 = "#5c545b"
+grey4 = "#797379"
+grey5 = "#989498"
+grey6 = "#b9b5b8"
+grey7 = "#d5d3d5"
+grey8 = "#ffffff"
+red1 = "#dd464c"
+orange1 = "#fd8b19"
+yellow1 = "#fdcc59"
+green1 = "#8fc13e"
+cyan1 = "#149b93"
+blue1 = "#1290bf"
+red2 = "#c85e7c"
+red3 = "#b33508"
+
+[roles]
+background = "#322931"
+foreground = "#ffffff"
+primary = "#fd8b19"

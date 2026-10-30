@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Ashes"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#1c2023"
+grey2 = "#393f45"
+grey3 = "#565e65"
+grey4 = "#747c84"
+grey5 = "#adb3ba"
+grey6 = "#c7ccd1"
+grey7 = "#dfe2e5"
+grey8 = "#f3f4f5"
+orange1 = "#c7ae95"
+yellow1 = "#c7c795"
+green1 = "#aec795"
+green2 = "#95c7ae"
+blue1 = "#95aec7"
+purple1 = "#ae95c7"
+purple2 = "#c795ae"
+red1 = "#c79595"
+
+[roles]
+background = "#1c2023"
+foreground = "#f3f4f5"
+primary = "#ae95c7"

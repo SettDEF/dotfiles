@@ -1,0 +1,308 @@
+#!/bin/bash
+
+# Arch Linux Installation Script
+# Restores dotfiles from backup folder, configures pacman with color, adds ArchStrike repo, installs hacking tools with paru, installs bluez and essential tools, and offers optional software.
+
+# Configuration
+DOTFILES_SOURCE="/mnt/usr/mars/dotfiles" # Primary dotfiles backup location
+FALLBACK_DOTFILES="$HOME/dotfiles_backup" # Fallback if primary doesn't exist
+TIME_STAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="/var/log/arch_install_$TIME_STAMP.log"
+PACMAN_CONF="/etc/pacman.conf"
+PARU_URL="https://aur.archlinux.org/paru-git.git"
+ARCHSTRIKE_KEY="9D5F1C051D146843CDA4858BDE64825E7CBC0D51"
+
+# Hacking tools to install
+ARCHSTRIKE_TOOLS=(
+    "memdump"          # Memory dumping tool
+    "metasploit"       # Penetration testing framework
+    "nmap"             # Network scanner
+    "wireshark-cli"    # Network protocol analyzer (CLI)
+    "aircrack-ng"      # Wireless network analysis
+    "sqlmap"           # SQL injection tool
+    "tcpdump"          # Packet analyzer
+    "hashcat"          # Password recovery tool
+)
+
+# AUR hacking tools
+AUR_TOOLS=(
+    "burpsuite"        # Web vulnerability scanner
+    "hydra"            # Password cracking tool
+)
+
+# Essential tools to install
+ESSENTIAL_TOOLS=(
+    "bluez"            # Bluetooth protocol stack
+    "bluez-utils"      # Bluetooth management tools
+    "bluez-libs"       # Bluetooth libraries
+    "bluetooth-autoconnect" # Automatic Bluetooth device connection
+    "vim"              # Text editor
+    "git"              # Version control
+    "curl"             # Data transfer tool
+    "wget"             # File downloader
+    "htop"             # System monitor
+    "tmux"             # Terminal multiplexer
+    "net-tools"        # Network utilities
+    "iw"               # Wireless network configuration
+    "wpa_supplicant"   # Wi-Fi authentication
+)
+
+# Optional tools to install (aligned with dotfiles and hacking)
+OPTIONAL_TOOLS=(
+    "neovim"           # Advanced text editor (nvim)
+    "tmux"             # Terminal multiplexer (already in ESSENTIAL_TOOLS, included for clarity)
+    "w3m"              # Text-based web browser
+    "kitty"            # Terminal emulator
+    "ranger"           # File manager
+    "zathura"          # Document viewer
+    "rofi"             # Application launcher
+    "awesome"          # Window manager
+    "picom"            # Compositor
+    "btop"             # System monitor
+    "aerc"             # Email client
+    "vifm"             # File manager
+    "wezterm"          # Terminal emulator (AUR)
+    "nikto"            # Web server scanner (ArchStrike)
+    "gobuster"         # Directory/file brute-forcer (ArchStrike)
+)
+
+# Logging function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "This script must be run as root (use sudo)"
+        exit 1
+    fi
+}
+
+# Prompt for user confirmation
+confirm() {
+    local prompt="$1"
+    read -p "$prompt (y/N): " choice
+    [[ "$choice" =~ ^[Yy]$ ]]
+}
+
+# Ensure directory is writable
+check_writable() {
+    local dir="$1"
+    if [[ ! -w "$dir" ]]; then
+        log "Error: Directory $dir is not writable"
+        exit 1
+    fi
+}
+
+# Configure pacman with color and optimizations
+configure_pacman() {
+    log "Configuring pacman"
+    
+    # Backup pacman.conf
+    cp "$PACMAN_CONF" "${PACMAN_CONF}.bak.$TIME_STAMP" || { log "Failed to backup $PACMAN_CONF"; exit 1; }
+    
+    # Enable color and ILoveCandy
+    sed -i '/^#Color/s/^#//' "$PACMAN_CONF"
+    if ! grep -q "ILoveCandy" "$PACMAN_CONF"; then
+        sed -i '/^Color/a ILoveCandy' "$PACMAN_CONF"
+    fi
+    
+    # Enable ParallelDownloads
+    sed -i '/^#ParallelDownloads/s/^#//' "$PACMAN_CONF"
+    sed -i 's/^ParallelDownloads.*/ParallelDownloads = 5/' "$PACMAN_CONF"
+    
+    # Enable multilib for x86_64
+    sed -i '/^\[multilib\]/,/^Include/ s/^#//' "$PACMAN_CONF"
+    
+    log "Pacman configured with color, ILoveCandy, ParallelDownloads, and multilib"
+}
+
+# Add ArchStrike repository
+add_archstrike() {
+    log "Adding ArchStrike repository"
+    
+    # Add ArchStrike repository to pacman.conf
+    if ! grep -q "\[archstrike\]" "$PACMAN_CONF"; then
+        echo -e "\n[archstrike]\nInclude = /etc/pacman.d/archstrike-mirrorlist" >> "$PACMAN_CONF"
+    fi
+    
+    # Initialize pacman keyring and import ArchStrike key
+    pacman-key --init || { log "Failed to initialize pacman keyring"; exit 1; }
+    dirmngr < /dev/null || { log "Failed to start dirmngr"; exit 1; }
+    pacman-key -r "$ARCHSTRIKE_KEY" || { log "Failed to import ArchStrike key"; exit 1; }
+    pacman-key --lsign-key "$ARCHSTRIKE_KEY" || { log "Failed to sign ArchStrike key"; exit 1; }
+    
+    # Install archstrike-keyring and mirrorlist
+    pacman -Syy --noconfirm archstrike-keyring archstrike-mirrorlist || { log "Failed to install ArchStrike keyring and mirrorlist"; exit 1; }
+    
+    log "ArchStrike repository added"
+}
+
+# Install paru AUR helper
+install_paru() {
+    log "Installing paru AUR helper"
+    
+    # Install dependencies
+    pacman -S --noconfirm git base-devel rust || { log "Failed to install paru dependencies"; exit 1; }
+    
+    # Clone and build paru
+    temp_dir=$(mktemp -d)
+    cd "$temp_dir" || { log "Failed to change to temp directory"; exit 1; }
+    sudo -u "$SUDO_USER" git clone "$PARU_URL" || { log "Failed to clone paru repository"; exit 1; }
+    cd paru-git || { log "Failed to enter paru-git directory"; exit 1; }
+    sudo -u "$SUDO_USER" makepkg -si --noconfirm || { log "Failed to build and install paru"; exit 1; }
+    cd / || { log "Failed to return to root directory"; exit 1; }
+    rm -rf "$temp_dir"
+    
+    log "paru installed successfully"
+}
+
+# Install essential tools
+install_essential_tools() {
+    log "Installing essential tools"
+    
+    # Install essential tools
+    for tool in "${ESSENTIAL_TOOLS[@]}"; do
+        pacman -S --noconfirm "$tool" && log "Installed $tool" || log "Failed to install $tool"
+    done
+    
+    # Enable and start Bluetooth service
+    systemctl enable bluetooth.service || { log "Failed to enable bluetooth.service"; exit 1; }
+    systemctl start bluetooth.service || { log "Failed to start bluetooth.service"; exit 1; }
+    
+    log "Essential tools installation completed"
+}
+
+# Install hacking tools
+install_hacking_tools() {
+    log "Installing hacking tools"
+    
+    # Update system
+    pacman -Syu --noconfirm || { log "Failed to update system"; exit 1; }
+    
+    # Install ArchStrike tools
+    for tool in "${ARCHSTRIKE_TOOLS[@]}"; do
+        pacman -S --noconfirm "$tool" && log "Installed $tool" || log "Failed to install $tool"
+    done
+    
+    # Install AUR tools
+    for tool in "${AUR_TOOLS[@]}"; do
+        sudo -u "$SUDO_USER" paru -S --noconfirm "$tool" && log "Installed $tool" || log "Failed to install $tool"
+    done
+    
+    log "Hacking tools installation completed"
+}
+
+# Install optional tools
+install_optional_tools() {
+    log "Installing optional tools"
+    
+    # Install optional tools (main repo and ArchStrike via pacman, AUR via paru)
+    for tool in "${OPTIONAL_TOOLS[@]}"; do
+        if [[ "$tool" == "wezterm" ]]; then
+            sudo -u "$SUDO_USER" paru -S --noconfirm "$tool" && log "Installed $tool" || log "Failed to install $tool"
+        else
+            pacman -S --noconfirm "$tool" && log "Installed $tool" || log "Failed to install $tool"
+        fi
+    done
+    
+    log "Optional tools installation completed"
+}
+
+# Restore dotfiles from backup folder
+restore_dotfiles() {
+    log "Restoring dotfiles"
+    
+    # Determine dotfiles source
+    if [[ -d "$DOTFILES_SOURCE" ]]; then
+        SOURCE_DIR="$DOTFILES_SOURCE"
+    elif [[ -d "$FALLBACK_DOTFILES" ]]; then
+        SOURCE_DIR="$FALLBACK_DOTFILES"
+    else
+        log "Error: No dotfiles found in $DOTFILES_SOURCE or $FALLBACK_DOTFILES"
+        exit 1
+    fi
+    
+    # Find the latest backup directory
+    LATEST_BACKUP=$(find "$SOURCE_DIR" -maxdepth 1 -type d -name "FROM_*" | sort -r | head -n 1)
+    if [[ -z "$LATEST_BACKUP" ]]; then
+        log "Error: No backup directory found in $SOURCE_DIR"
+        exit 1
+    fi
+    
+    # Restore all files and directories from the backup
+    find "$LATEST_BACKUP" -type f | while read -r src; do
+        rel_path="${src#$LATEST_BACKUP/}"
+        dest="$HOME/$rel_path"
+        
+        # Create destination directory
+        mkdir -p "$(dirname "$dest")" || { log "Failed to create directory $(dirname "$dest")"; continue; }
+        
+        # Check if destination file exists
+        if [[ -f "$dest" ]]; then
+            log "File $dest exists, skipping (manual merge required)"
+        else
+            cp -f "$src" "$dest" || { log "Failed to copy $src to $dest"; continue; }
+            log "Restored $src to $dest"
+        fi
+    done
+    
+    log "Dotfiles restoration completed"
+}
+
+# Main function
+main() {
+    check_root
+    
+    # Create log directory
+    mkdir -p "$(dirname "$LOG_FILE")" || { echo "Error: Cannot create log directory $(dirname "$LOG_FILE")"; exit 1; }
+    check_writable "$(dirname "$LOG_FILE")"
+    
+    log "Starting Arch Linux installation setup"
+    
+    # System update
+    if confirm "Update system before proceeding?"; then
+        pacman -Syu --noconfirm || { log "Failed to update system"; exit 1; }
+        log "System updated"
+    fi
+    
+    # Configure pacman
+    if confirm "Configure pacman with color and optimizations?"; then
+        configure_pacman
+    fi
+    
+    # Add ArchStrike repository
+    if confirm "Add ArchStrike repository for hacking tools?"; then
+        add_archstrike
+    fi
+    
+    # Install essential tools
+    if confirm "Install essential tools including bluez?"; then
+        install_essential_tools
+    fi
+    
+    # Install paru
+    if confirm "Install paru AUR helper?"; then
+        install_paru
+    fi
+    
+    # Install hacking tools
+    if confirm "Install hacking tools from ArchStrike and AUR?"; then
+        install_hacking_tools
+    fi
+    
+    # Install optional tools
+    if confirm "Install optional tools (neovim, tmux, w3m, kitty, ranger, etc.)?"; then
+        install_optional_tools
+    fi
+    
+    # Restore dotfiles
+    if confirm "Restore dotfiles from backup?"; then
+        restore_dotfiles
+    fi
+    
+    log "Installation setup completed"
+}
+
+main

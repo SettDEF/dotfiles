@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# texfetch — mirror free (CC0) 3D assets: PBR textures, HDRIs and models.
+#
+# Sites (official APIs only, so a redesign does not break it):
+#   ambientcg   ambientcg.com    materials, HDRIs, 3D models, decals, atlases, terrains
+#   polyhaven   polyhaven.com    textures, HDRIs, models
+#   sketchfab   sketchfab.com    downloadable CC-licensed models, by search term (-q);
+#               needs SKETCHFAB_TOKEN in ~/.secure/apikeys (Settings > Password & API)
+# Every asset is CC0. Downloads resume: finished files are skipped, partial ones
+# (.part) are continued. Sites are asked politely (one listing request at a time,
+# a few parallel file downloads, an identifying User-Agent).
+#
+# Adding a site: write site_<name>_list (prints "<url>\t<relative path>" lines)
+# and add <name> to SITES.
+
+set -euo pipefail
+
+SITES=(ambientcg polyhaven sketchfab)
+DEST=/mnt/storage/Assets/3D
+RES=2k            # 1k 2k 4k 8k all
+FORMAT=jpg        # jpg png (textures)
+TYPES=all         # textures hdris models all
+JOBS=4
+QUERY=""         # sketchfab search term
+MAX=200           # sketchfab: max models per run
+DRY=0
+UA="texfetch/1.0 (personal CC0 archive; curl)"
+
+usage() {
+    cat <<EOF
+Usage: texfetch [options] [site ...]
+
+Sites: ${SITES[*]} (default: all)
+
+Options:
+  -r, --res RES        1k | 2k | 4k | 8k | all       (default: $RES)
+  -f, --format FMT     jpg | png  (texture maps)       (default: $FORMAT)
+  -t, --types LIST     textures,hdris,models | all     (default: $TYPES)
+  -d, --dest DIR       target folder                   (default: $DEST)
+  -j, --jobs N         parallel downloads              (default: $JOBS)
+  -q, --query TERM     Sketchfab search term (required for sketchfab)
+  -m, --max N          Sketchfab: at most N models     (default: $MAX)
+  -n, --dry-run        list what would be fetched, download nothing
+  -h, --help
+
+Examples:
+  texfetch                               # everything, 2K, into $DEST
+  texfetch -t textures -r 4k polyhaven   # Poly Haven textures in 4K
+  texfetch -r all -n ambientcg           # count every ambientCG file, all sizes
+EOF
+}
+
+die() { echo "texfetch: $*" >&2; exit 1; }
+log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
+
+wanted_type() { [[ $TYPES == all || ",$TYPES," == *",$1,"* ]]; }
+wanted_res() {  # $1 like 2k / 2K
+    local r=${1,,}
+    [[ $RES == all || $r == "$RES" ]]
+}
+
+api() { curl -fsS --retry 3 --retry-delay 2 -A "$UA" "$1"; }
+
+# ── ambientCG ───────────────────────────────────────────────────────────────
+# One zip per asset and resolution ("2K-JPG"), extracted into its own folder.
+site_ambientcg_list() {
+    local -A kind=([Material]=textures [Decal]=textures [Atlas]=textures [Terrain]=textures
+                   [Substance]=textures [HDRI]=hdris [3DModel]=models)
+    local type offset page n
+    for type in "${!kind[@]}"; do
+        wanted_type "${kind[$type]}" || continue
+        offset=0
+        while :; do
+            page=$(api "https://ambientcg.com/api/v2/full_json?type=$type&include=downloadData&limit=250&offset=$offset") || break
+            n=$(jq '.foundAssets | length' <<<"$page")
+            (( n == 0 )) && break
+            jq -r --arg kind "${kind[$type]}" --arg res "$RES" --arg fmt "$FORMAT" '
+                .foundAssets[] as $a
+                | ($a.downloadFolders.default.downloadFiletypeCategories // {} | to_entries[].value.downloads[]?) as $d
+                | ($d.attribute | ascii_downcase) as $attr
+                | select($res == "all" or ($attr | startswith($res)))
+                | select(($attr | test("jpg|png")) | not or ($attr | endswith($fmt)))
+                | "\($d.fullDownloadPath)\tambientcg/\($kind)/\($a.assetId)/\($a.assetId)_\($d.attribute).\($d.fileName | split(".") | last)"
+            ' <<<"$page"
+            offset=$((offset + 250))
+            sleep 0.5
+        done
+    done
+}
+
+# ── Poly Haven ──────────────────────────────────────────────────────────────
+# Textures: every map file at the chosen size. HDRIs: the .hdr. Models: glTF
+# with its textures ("include").
+site_polyhaven_list() {
+    local t ids id files
+    for t in textures hdris models; do
+        wanted_type "$t" || continue
+        ids=$(api "https://api.polyhaven.com/assets?t=$t" | jq -r 'keys[]')
+        for id in $ids; do
+            files=$(api "https://api.polyhaven.com/files/$id") || continue
+            case $t in
+                textures)
+                    jq -r --arg id "$id" --arg res "$RES" --arg fmt "$FORMAT" '
+                        to_entries[]
+                        | select(.key | test("^(blend|gltf|mtlx)$") | not)
+                        | .key as $map | .value | to_entries[]
+                        | select($res == "all" or .key == $res) | .key as $r
+                        | .value[$fmt] // .value["exr"] // empty
+                        | "\(.url)\tpolyhaven/textures/\($id)/\(.url | split("/") | last)"
+                    ' <<<"$files" ;;
+                hdris)
+                    jq -r --arg id "$id" --arg res "$RES" '
+                        .hdri | to_entries[] | select($res == "all" or .key == $res)
+                        | .value.hdr // .value.exr // empty
+                        | "\(.url)\tpolyhaven/hdris/\($id)/\(.url | split("/") | last)"
+                    ' <<<"$files" ;;
+                models)
+                    jq -r --arg id "$id" --arg res "$RES" '
+                        .gltf // {} | to_entries[] | select($res == "all" or .key == $res) | .key as $r
+                        | .value.gltf
+                        | ("\(.url)\tpolyhaven/models/\($id)/\($r)/\(.url | split("/") | last)"),
+                          (.include // {} | to_entries[] | "\(.value.url)\tpolyhaven/models/\($id)/\($r)/\(.key)")
+                    ' <<<"$files" ;;
+            esac
+            sleep 0.1
+        done
+    done
+}
+
+# ── Sketchfab ───────────────────────────────────────────────────────────────
+# Downloadable models matching -q. The listing only knows model ids: download
+# links are signed and expire within minutes, so fetch_one asks for them.
+site_sketchfab_list() {
+    wanted_type models || return 0
+    [[ -n $QUERY ]] || die "sketchfab needs a search term: -q \"skateboard\""
+    [[ -n ${SKETCHFAB_TOKEN:-} ]] || die "sketchfab needs SKETCHFAB_TOKEN in ~/.secure/apikeys (sketchfab.com > Settings > Password & API)"
+    local url="https://api.sketchfab.com/v3/search?type=models&downloadable=true&count=24&q=$(jq -rn --arg q "$QUERY" '$q|@uri')"
+    local n=0 page
+    while [[ -n $url && $url != null ]] && (( n < MAX )); do
+        page=$(api "$url") || break
+        jq -r --arg q "$QUERY" '.results[] | "sketchfab:\(.uid)\tsketchfab/\($q | gsub("[^A-Za-z0-9]+"; "_"))/\(.slug // .uid)_\(.uid).zip"' <<<"$page" | head -n $((MAX - n))
+        n=$((n + $(jq '.results | length' <<<"$page")))
+        url=$(jq -r '.next' <<<"$page")
+        sleep 0.5
+    done
+}
+
+# Resolve a "sketchfab:<uid>" pseudo-URL into a signed link; also writes the
+# licence + author next to the model (many are CC-BY: attribution required).
+sketchfab_resolve() {
+    local uid=$1 dir=$2 info dl
+    info=$(curl -fsS -A "$UA" "https://api.sketchfab.com/v3/models/$uid") || return 1
+    mkdir -p "$dir"
+    jq -r '"\(.name)\nby \(.user.displayName) (\(.user.profileUrl))\nlicence: \(.license.label // "?") \(.license.url // "")\nsource: \(.viewerUrl)"' <<<"$info" > "$dir/LICENSE.txt"
+    dl=$(curl -fsS -A "$UA" -H "Authorization: Token $SKETCHFAB_TOKEN" "https://api.sketchfab.com/v3/models/$uid/download") || return 1
+    jq -r '.gltf.url // .source.url // empty' <<<"$dl"
+}
+
+# ── Download one "<url>\t<path>" line ───────────────────────────────────────
+fetch_one() {
+    local url=${1%%$'\t'*} rel=${1#*$'\t'}
+    local out="$DEST/$rel"
+    local done_marker="$out"
+    [[ $out == *.zip ]] && done_marker="${out%.zip}/.done"
+    [[ -e $done_marker ]] && return 0
+    mkdir -p "$(dirname "$out")"
+    if [[ $url == sketchfab:* ]]; then
+        url=$(sketchfab_resolve "${url#sketchfab:}" "${out%.zip}") || { echo "FAILED $1" >> "$DEST/.texfetch-failed.log"; return 0; }
+        [[ -n $url ]] || { echo "NOLINK $1" >> "$DEST/.texfetch-failed.log"; return 0; }
+    fi
+    if ! curl -fsSL --retry 3 --retry-delay 3 -C - -A "$UA" -o "$out.part" "$url"; then
+        echo "FAILED $url" >> "$DEST/.texfetch-failed.log"
+        return 0
+    fi
+    mv -f "$out.part" "$out"
+    if [[ $out == *.zip ]]; then
+        local dir=${out%.zip}
+        mkdir -p "$dir"
+        if unzip -oq "$out" -d "$dir"; then
+            rm -f "$out"
+            touch "$dir/.done"
+        else
+            echo "BADZIP $url" >> "$DEST/.texfetch-failed.log"
+        fi
+    fi
+    echo "ok $rel"
+}
+export -f fetch_one sketchfab_resolve
+export DEST UA
+
+# ── Arguments ───────────────────────────────────────────────────────────────
+picked=()
+while (( $# )); do
+    case $1 in
+        -r|--res)     RES=${2,,}; shift ;;
+        -f|--format)  FORMAT=${2,,}; shift ;;
+        -t|--types)   TYPES=$2; shift ;;
+        -d|--dest)    DEST=$2; shift ;;
+        -j|--jobs)    JOBS=$2; shift ;;
+        -q|--query)   QUERY=$2; shift ;;
+        -m|--max)     MAX=$2; shift ;;
+        -n|--dry-run) DRY=1 ;;
+        -h|--help)    usage; exit 0 ;;
+        -*)           die "unknown option $1 (see --help)" ;;
+        *)            picked+=("$1") ;;
+    esac
+    shift
+done
+[[ $RES =~ ^(1k|2k|4k|8k|all)$ ]] || die "--res must be 1k, 2k, 4k, 8k or all"
+[[ $FORMAT =~ ^(jpg|png)$ ]] || die "--format must be jpg or png"
+(( ${#picked[@]} )) || { picked=(ambientcg polyhaven); [[ -n $QUERY ]] && picked+=(sketchfab); }
+for s in "${picked[@]}"; do
+    declare -F "site_${s}_list" >/dev/null || die "unknown site '$s' (have: ${SITES[*]})"
+done
+# Optional keys (Sketchfab token) from the one place API keys live.
+SKETCHFAB_TOKEN=$(sed -n "s/^SKETCHFAB_TOKEN=//p" "$HOME/.secure/apikeys" 2>/dev/null | tr -d '"')
+export SKETCHFAB_TOKEN
+for tool in curl jq unzip xargs; do command -v "$tool" >/dev/null || die "needs $tool"; done
+
+mkdir -p "$DEST"
+list="$DEST/.texfetch-$(date +%Y%m%d-%H%M%S).list"
+for s in "${picked[@]}"; do
+    log "listing $s (res $RES, types $TYPES) …"
+    "site_${s}_list" >> "$list"
+done
+total=$(wc -l < "$list")
+log "$total files listed → $list"
+
+if (( DRY )); then
+    awk -F'\t' '{ split($2, p, "/"); n[p[1] "/" p[2]]++ } END { for (k in n) printf "  %-26s %d files\n", k, n[k] }' "$list" | sort
+    exit 0
+fi
+
+log "downloading with $JOBS parallel jobs into $DEST (Ctrl+C is safe; run again to resume)"
+tr '\n' '\0' < "$list" | xargs -0 -P "$JOBS" -I{} bash -c 'fetch_one "$1"' _ {} \
+    | awk -v total="$total" '{ n++; if (n % 25 == 0 || n == total) printf "\r  %d / %d", n, total > "/dev/stderr" } END { print "" > "/dev/stderr" }'
+[[ -s $DEST/.texfetch-failed.log ]] && log "some downloads failed — see $DEST/.texfetch-failed.log (run again to retry)"
+log "done"

@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Framer"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#181818"
+grey2 = "#151515"
+grey3 = "#464646"
+grey4 = "#747474"
+grey5 = "#b9b9b9"
+grey6 = "#d0d0d0"
+grey7 = "#e8e8e8"
+grey8 = "#eeeeee"
+red1 = "#fd886b"
+red2 = "#fc4769"
+yellow1 = "#fecb6e"
+cyan1 = "#32ccdc"
+blue1 = "#acddfd"
+blue2 = "#20bcfc"
+purple1 = "#ba8cfc"
+red3 = "#b15f4a"
+
+[roles]
+background = "#181818"
+foreground = "#eeeeee"
+primary = "#fc4769"

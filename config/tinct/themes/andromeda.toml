@@ -1,0 +1,19 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Andromeda"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#23262e"
+grey2 = "#d5ced9"
+red1 = "#ee5d43"
+green1 = "#96e072"
+yellow1 = "#ffe66d"
+blue1 = "#7cb7ff"
+red2 = "#ff00aa"
+cyan1 = "#00e8c6"
+
+[roles]
+background = "#23262e"
+foreground = "#d5ced9"
+primary = "#ff00aa"

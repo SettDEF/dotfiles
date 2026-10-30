@@ -1,0 +1,41 @@
+#!/bin/bash
+
+
+# Get the current cursor position
+eval $(xdotool getmouselocation --shell)
+
+# Define the focus area size (400px by 400px)
+FOCUS_WIDTH=400
+FOCUS_HEIGHT=400
+HALF_FOCUS_WIDTH=$((FOCUS_WIDTH / 2))
+HALF_FOCUS_HEIGHT=$((FOCUS_HEIGHT / 2))
+
+# Get screen dimensions (use xwininfo or xrandr to find your screen size)
+SCREEN_WIDTH=1920
+SCREEN_HEIGHT=1080
+
+# Calculate the top-left corner of the focus area based on cursor position
+FOCUS_X=$((X - HALF_FOCUS_WIDTH))
+FOCUS_Y=$((Y - HALF_FOCUS_HEIGHT))
+
+# Clamp the focus area to stay within screen boundaries
+FOCUS_X=$(($FOCUS_X < 0 ? 0 : $FOCUS_X))
+FOCUS_Y=$(($FOCUS_Y < 0 ? 0 : $FOCUS_Y))
+FOCUS_X=$(($FOCUS_X + $FOCUS_WIDTH > $SCREEN_WIDTH ? $SCREEN_WIDTH - $FOCUS_WIDTH : $FOCUS_X))
+FOCUS_Y=$(($FOCUS_Y + $FOCUS_HEIGHT > $SCREEN_HEIGHT ? $SCREEN_HEIGHT - $FOCUS_HEIGHT : $FOCUS_Y))
+
+# Use `compton` or `picom` for a black overlay
+# Alternatively, you could use `xdotool` to create a blank window over the non-focus area
+# Here, we use `xwininfo` or `xrandr` to define the regions.
+
+# Full-screen blackout
+blackout() {
+    # Create a black background
+    # This can be done using a window manager or tool like `xwinwrap` or `xdo`
+    # Adjust the black rectangle that covers the entire screen
+    # This is just an example, consider using `xwinwrap` or `xdo`
+    xdotool search --onlyvisible --class "root" windowmove $FOCUS_X $FOCUS_Y
+}
+
+# Call the blackout function to apply focus mode
+blackout

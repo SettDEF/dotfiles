@@ -1,0 +1,27 @@
+#!/bin/bash
+# Roland DJ-808 Keep-Alive Script (dynamisch + robust)
+
+echo "=== Roland DJ-808 Keep-Alive Script ==="
+
+# MIDI-Port dynamisch finden (besser als hart hw:3,0,0)
+PORT=$(amidi -l | grep -i -E "DJ-808|DJ808|Roland" | awk '{print $2}')
+
+if [ -z "$PORT" ]; then
+    echo "❌ Fehler: DJ-808 MIDI Port nicht gefunden!"
+    echo "Bitte prüfe mit 'amidi -l' ob der Controller erkannt wird."
+    exit 1
+fi
+
+echo "✅ DJ-808 MIDI Port gefunden: $PORT"
+
+# Serato Mode aktivieren (einmalig)
+amidi -p "$PORT" -S "F0 00 20 7F 00 F7"
+amidi -p "$PORT" -S "F0 00 20 7F 01 F7"
+echo "DJ-808 Serato Mode ON!"
+
+# Keep-Alive Loop (sendet alle 0.5s ein harmless MIDI-Message)
+echo "Keep-Alive läuft... (Strg+C zum Beenden)"
+while true; do
+    amidi -p "$PORT" -S "BF 64 00"   # Note Off oder Dummy CC
+    sleep 0.5
+done

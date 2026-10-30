@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Codeschool"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#232c31"
+blue1 = "#1c3657"
+grey2 = "#2a343a"
+grey3 = "#3f4944"
+grey4 = "#84898c"
+grey5 = "#9ea7a6"
+green1 = "#a7cfa3"
+blue2 = "#b5d8f6"
+blue3 = "#2a5491"
+green2 = "#43820d"
+red1 = "#a03b1e"
+cyan1 = "#237986"
+red2 = "#b02f30"
+blue4 = "#484d79"
+yellow1 = "#c59820"
+orange1 = "#c98344"
+
+[roles]
+background = "#232c31"
+foreground = "#9ea7a6"
+primary = "#c59820"

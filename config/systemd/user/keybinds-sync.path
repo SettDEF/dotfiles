@@ -1,0 +1,17 @@
+[Unit]
+Description=Re-collect app keybinds when their configs change
+
+[Path]
+PathChanged=%h/.config/tmux/tmux.conf
+PathModified=%h/.config/wezterm
+PathChanged=%h/.config/wezterm/keys.lua
+PathChanged=%h/.config/wezterm/keybinds.lua
+PathChanged=%h/.config/wezterm/wezterm.lua
+PathModified=%h/.config/nvim/lua
+PathChanged=%h/.config/nvim/init.lua
+PathChanged=%h/.zshrc
+PathChanged=%h/.config/reel/settings.json
+Unit=keybinds-sync.service
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,313 @@
+#!/bin/bash
+
+# Dotfiles Backup Script
+# Backs up specified dotfiles and folders, merges old and new files smartly, and supports Git integration.
+
+# Configuration
+PREFERRED_DIR="/mnt/usr/mars/dotfiles"
+TIME_STAMP=$(date +%Y%m%d_%H%M%S)
+if [[ -d "$PREFERRED_DIR" ]]; then
+    BACKUP_DIR="$PREFERRED_DIR/FROM_$TIME_STAMP"
+    LOG_FILE="$BACKUP_DIR/backup.log"
+else
+    BACKUP_DIR="$HOME/dotfiles_backup/$TIME_STAMP"
+    LOG_FILE="$BACKUP_DIR/backup.log"
+fi
+
+DOTFILES=(
+    "$HOME/.bash_history"
+    "$HOME/.bash_logout"
+    "$HOME/.bash_profile"
+    "$HOME/.bashrc"
+    "$HOME/.config/aerc"
+    "$HOME/.config/aria2"
+    "$HOME/.config/awesome"
+    "$HOME/.config/btop"
+    "$HOME/.config/calibre"
+    "$HOME/.config/darkman"
+    "$HOME/.config/dunst"
+    "$HOME/.config/epy"
+    "$HOME/.config/filezilla"
+    "$HOME/.config/function"
+    "$HOME/.config/gedit"
+    "$HOME/.config/gh"
+    "$HOME/.config/GIMP"
+    "$HOME/.config/gpick"
+    "$HOME/.config/gtk-3.0"
+    "$HOME/.config/gtk-4.0"
+    "$HOME/.config/htop"
+    "$HOME/.config/i3"
+    "$HOME/.config/kitty"
+    "$HOME/.config/menus"
+    "$HOME/.config/mimeapps.list"
+    "$HOME/.config/mpv"
+    "$HOME/.config/ncmpcpp"
+    "$HOME/.config/nemo"
+    "$HOME/.config/nvim"
+    "$HOME/.config/picom"
+    "$HOME/.config/qBittorrent"
+    "$HOME/.config/QtProject.conf"
+    "$HOME/.config/ranger"
+    "$HOME/.config/redshift"
+    "$HOME/.config/rofi"
+    "$HOME/.config/surfraw"
+    "$HOME/.config/systemd"
+    "$HOME/.config/timewarrior"
+    "$HOME/.config/tmux"
+    "$HOME/.config/todo"
+    "$HOME/.config/user-dirs.dirs"
+    "$HOME/.config/vifm"
+    "$HOME/.config/vim"
+    "$HOME/.config/vmpk.sourceforge.net"
+    "$HOME/.config/w3m"
+    "$HOME/.config/wezterm"
+    "$HOME/.config/zathura"
+    "$HOME/.config/zsh"
+    "$HOME/.gitconfig"
+    "$HOME/.newsboat"
+    "$HOME/.profile"
+    "$HOME/.scripts"
+    "$HOME/.tmux"
+    "$HOME/.w3m"
+    "$HOME/.wallpapers"
+    "$HOME/.xbindkeysrc"
+    "$HOME/.Xmodmap"
+    "$HOME/.xsettingsd"
+    "$HOME/.zplug"
+    "$HOME/.zshenv"
+    "$HOME/.zsh_history"
+    # Others
+    "$HOME/.BitwigStudio"
+)
+EXCLUDE=(
+    "*.key"
+    "*.pem"
+    "*.log"
+    "*.bak"
+    "*.sqlite3"
+    "*.part*.rar"
+    "*.pkg"
+    "*.ses"
+    "*.desktop"
+    "*.lnk"
+    "*/cache/*"
+    "*/CrashLog/*"
+    "*/nohup.out"
+    "*/tmp/*"
+    "$HOME/.BitwigStudio"
+    "$HOME/Bottles"
+    "$HOME/.cache"
+    "$HOME/.cargo"
+    "$HOME/.codeium"
+    "$HOME/.conda"
+    "$HOME/.dmrc"
+    "$HOME/.ds_cache"
+    "$HOME/.flatpak-builder"
+    "$HOME/.history"
+    "$HOME/.java"
+    "$HOME/.local"
+    "$HOME/.mono"
+    "$HOME/.mozilla"
+    "$HOME/.npm"
+    "$HOME/.rustup"
+    "$HOME/.secret"
+    "$HOME/.texlive"
+    "$HOME/.torrent"
+    "$HOME/.var"
+    "$HOME/.viminfo"
+    "$HOME/.wget-hsts"
+    "$HOME/.wine"
+    "$HOME/.wine-sheltered2"
+    "$HOME/.Xauthority"
+    "$HOME/.xsession-errors"
+    "$HOME/.xsession-errors.old"
+    "$HOME/.zcompdump"
+    "$HOME/Zomboid"
+    "$HOME/.config/zathura/cache"
+    "$HOME/.config/btop/btop.log"
+    "$HOME/.config/calibre/caches"
+    "$HOME/.config/filezilla/lockfile"
+    "$HOME/.config/ncmpcpp/error.log"
+    "$HOME/.config/pulse/cookie"
+    "$HOME/.config/tmux/tmux-client-*.log"
+)
+GIT_REPO="" # Set to your Git repo URL (e.g., git@github.com:username/dotfiles.git) or leave empty
+GIT_BRANCH="main" # Default branch for Git push (change to "master" if needed)
+DRY_RUN=false
+
+# Ensure backup directory exists and is writable
+mkdir -p "$(dirname "$LOG_FILE")" || { echo "Error: Cannot create log directory $(dirname "$LOG_FILE")"; exit 1; }
+mkdir -p "$BACKUP_DIR" || { echo "Error: Cannot create backup directory $BACKUP_DIR"; exit 1; }
+if [[ ! -w "$BACKUP_DIR" ]]; then
+    echo "Error: Backup directory $BACKUP_DIR is not writable"
+    exit 1
+fi
+
+# Logging function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+# Check if path matches exclude patterns
+is_excluded() {
+    local path="$1"
+    for pattern in "${EXCLUDE[@]}"; do
+        if [[ "$path" == $pattern || "$path" =~ $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Merge files using diff and user input
+merge_files() {
+    local src="$1"
+    local dest="$2"
+    local temp_merge=$(mktemp)
+
+    # Check if files differ
+    if ! diff -q "$src" "$dest" >/dev/null 2>&1; then
+        echo "Differences found between $src and $dest"
+        diff "$src" "$dest" | less
+        echo "Options: [m]erge, [o]verwrite, [s]kip, [b]ackup old"
+        read -p "Choose action: " choice
+        case "$choice" in
+            m|M)
+                # Attempt to merge using sdiff (user can edit manually)
+                sdiff -o "$temp_merge" "$src" "$dest"
+                if [ $? -eq 0 ]; then
+                    cp -f "$temp_merge" "$dest" || { log "Failed to copy merged $src to $dest"; rm -f "$temp_merge"; return 1; }
+                    log "Merged $src into $dest"
+                else
+                    log "Merge failed for $src"
+                    rm -f "$temp_merge"
+                    return 1
+                fi
+                ;;
+            o|O)
+                cp -f "$src" "$dest" || { log "Failed to copy $src to $dest"; rm -f "$temp_merge"; return 1; }
+                log "Overwrote $dest with $src"
+                ;;
+            b|B)
+                cp -f "$dest" "$dest.bak" || { log "Failed to backup $dest to $dest.bak"; rm -f "$temp_merge"; return 1; }
+                cp -f "$src" "$dest" || { log "Failed to copy $src to $dest"; rm -f "$temp_merge"; return 1; }
+                log "Backed up $dest to $dest.bak and copied $src"
+                ;;
+            s|S|*)
+                log "Skipped $src"
+                rm -f "$temp_merge"
+                return 1
+                ;;
+        esac
+    else
+        cp -f "$src" "$dest" || { log "Failed to copy $src to $dest"; rm -f "$temp_merge"; return 1; }
+        log "Copied identical $src to $dest"
+    fi
+    rm -f "$temp_merge"
+    return 0
+}
+
+# Backup a single file or directory
+backup_path() {
+    local src="$1"
+    local rel_path="${src#$HOME/}"
+    local dest="$BACKUP_DIR/$rel_path"
+
+    if is_excluded "$src"; then
+        log "Excluded $src"
+        return
+    fi
+
+    if [ ! -e "$src" ]; then
+        log "Source $src does not exist"
+        return
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        log "[DRY RUN] Would backup $src to $dest"
+        return
+    fi
+
+    # Create destination directory
+    mkdir -p "$(dirname "$dest")" || { log "Failed to create directory $(dirname "$dest")"; return 1; }
+
+    if [ -d "$src" ]; then
+        # Handle directories
+        find "$src" -type f | while read -r file; do
+            if is_excluded "$file"; then
+                log "Excluded $file"
+                continue
+            fi
+            local file_rel_path="${file#$HOME/}"
+            local file_dest="$BACKUP_DIR/$file_rel_path"
+            mkdir -p "$(dirname "$file_dest")" || { log "Failed to create directory $(dirname "$file_dest")"; continue; }
+            
+            if [ -f "$file_dest" ]; then
+                merge_files "$file" "$file_dest"
+            else
+                cp -f "$file" "$file_dest" || { log "Failed to copy $file to $file_dest"; continue; }
+                log "Copied $file to $file_dest"
+            fi
+        done
+    else
+        # Handle files
+        if [ -f "$dest" ]; then
+            merge_files "$src" "$dest"
+        else
+            cp -f "$src" "$dest" || { log "Failed to copy $src to $dest"; return 1; }
+            log "Copied $src to $dest"
+        fi
+    fi
+}
+
+# Push to Git repository
+push_to_git() {
+    if [ -z "$GIT_REPO" ]; then
+        log "No Git repository specified, skipping Git push"
+        return
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        log "[DRY RUN] Would push to Git repo $GIT_REPO"
+        return
+    fi
+
+    cd "$BACKUP_DIR" || { log "Failed to change to $BACKUP_DIR"; return 1; }
+    git init 2>/dev/null || { log "Failed to initialize Git repository"; return 1; }
+    git remote add origin "$GIT_REPO" 2>/dev/null || true
+    git add . || { log "Failed to stage files for Git commit"; return 1; }
+    git commit -m "Dotfiles backup $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null || { log "Failed to commit changes"; return 1; }
+    git push -u origin "$GIT_BRANCH" 2>/dev/null || { log "Failed to push to Git repo $GIT_REPO (branch: $GIT_BRANCH)"; return 1; }
+    log "Pushed backup to Git repo $GIT_REPO"
+}
+
+# Main backup function
+main() {
+    log "Starting dotfiles backup"
+
+    # Process each dotfile or directory
+    for path in "${DOTFILES[@]}"; do
+        backup_path "$path"
+    done
+
+    # Push to Git if configured
+    push_to_git
+
+    log "Backup completed"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+main

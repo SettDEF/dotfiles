@@ -1,0 +1,14 @@
+[Unit]
+Description=KinetiX Touchpad Telemetry
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/home/caesar/.scripts/apps/knurl/kinetix-touchpad
+Restart=always
+RestartSec=3
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

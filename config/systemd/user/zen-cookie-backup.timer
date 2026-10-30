@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly Zen cookie snapshot
+
+[Timer]
+OnBootSec=5min
+OnCalendar=hourly
+Persistent=true
+Unit=zen-cookie-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "p1789237821864",
+      "name": "New profile",
+      "target": "",
+      "chain": []
+    }
+  ]
+}

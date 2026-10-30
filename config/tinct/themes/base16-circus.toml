@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Circus"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#191919"
+grey2 = "#202020"
+grey3 = "#303030"
+grey4 = "#5f5a60"
+grey5 = "#505050"
+grey6 = "#a7a7a7"
+grey7 = "#808080"
+grey8 = "#ffffff"
+red1 = "#dc657d"
+cyan1 = "#4bb1a7"
+yellow1 = "#c3ba63"
+green1 = "#84b97c"
+cyan2 = "#4bb1a7"
+blue1 = "#639ee4"
+purple1 = "#b888e2"
+purple2 = "#b888e2"
+
+[roles]
+background = "#191919"
+foreground = "#ffffff"
+primary = "#dc657d"

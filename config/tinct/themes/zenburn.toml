@@ -1,0 +1,25 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Zenburn"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#3f3f3f"
+grey2 = "#1f1f1f"
+grey3 = "#333333"
+grey4 = "#dcdccc"
+green1 = "#7f9f7f"
+red1 = "#cc9393"
+orange1 = "#dfaf8f"
+yellow1 = "#f0dfaf"
+green2 = "#5f7f5f"
+cyan1 = "#8cd0d3"
+blue1 = "#8cb0d3"
+green3 = "#71d3b4"
+orange2 = "#ffcfaf"
+red2 = "#ecb3b3"
+
+[roles]
+background = "#3f3f3f"
+foreground = "#dcdccc"
+primary = "#71d3b4"

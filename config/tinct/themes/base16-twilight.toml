@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Twilight"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#1e1e1e"
+grey2 = "#323537"
+grey3 = "#464b50"
+grey4 = "#5f5a60"
+grey5 = "#838184"
+grey6 = "#a7a7a7"
+grey7 = "#c3c3c3"
+grey8 = "#ffffff"
+red1 = "#cf6a4c"
+yellow1 = "#cda869"
+yellow2 = "#f9ee98"
+green1 = "#8f9d6a"
+blue1 = "#afc4db"
+blue2 = "#7587a6"
+purple1 = "#9b859d"
+orange1 = "#9b703f"
+
+[roles]
+background = "#1e1e1e"
+foreground = "#ffffff"
+primary = "#cf6a4c"

@@ -1,0 +1,375 @@
+#!/bin/bash
+
+version_number="1.5.0"
+
+# Source URLs
+sources=(
+    "anna=https://annas-archive.org/search?q="
+    "libgen=https://libgen.is/search.php?req="
+    "zlib=https://z-lib.is/s/?q="
+    "zlib_on10n=http://zlib.onion/s/?q="
+)
+
+# Default source
+default_source="anna"
+
+# Colors for output
+White='\e[0;37m'
+Red='\e[0;31m'
+Green='\e[0;32m'
+Yellow='\e[0;33m'
+BRed='\e[1;31m'
+BGreen='\e[1;32m'
+BYellow='\e[1;33m'
+BBlue='\e[1;34m'
+
+# Temporary directory
+temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
+
+# Download directory
+download_dir="$HOME/Documents/Books"
+
+# Check for required dependencies
+check_dependencies() {
+    local deps=("wget" "curl" "jq" "fzf")
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" &>/dev/null; then
+            echo -e "${BRed}Error: $dep is not installed. Please install it and try again.${White}"
+            exit 1
+        fi
+    done
+}
+
+# Display version information
+version_info() {
+    echo "$version_number"
+    exit 0
+}
+
+# Display help message
+help_info() {
+    cat <<- _EOF_
+Usage: $0 [options]
+
+Options:
+  --version          Show version information
+  --help, -h         Show this help message
+  --source <name>    Choose source (anna, libgen, zlib) [default: anna]
+  --external_download Download external resources (Anna's Archive only)
+  --lib              Prioritize book searches on Libgen (Anna's Archive only)
+  --es               Search in Spanish
+  --en               Search in English
+  --pdf              Search for PDF files
+  --epub             Search for EPUB files
+  --author <name>    Specify the author
+_EOF_
+    exit 0
+}
+
+# Select random User-Agent
+get_user_agent() {
+    local agent
+    numRandom=$((RANDOM % 59))
+    agent=$(jq --raw-output ".[${numRandom}]" user-agent.json 2>/dev/null)
+    if [[ -z "$agent" ]]; then
+        agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    fi
+    echo "$agent"
+}
+
+# Check if source URL is reachable
+check_source() {
+    local url="$1"
+    if ! curl -s -I -A "$agent" "$url" >/dev/null; then
+        echo -e "${BRed}Error: Source URL $url is not reachable.${White}"
+        exit 1
+    fi
+}
+
+# Scrape book data from HTML
+scrape_data() {
+    local source="$1"
+    local html_file="$temp_dir/.html"
+    case "$source" in
+        anna)
+            sed -n 's/.*<h3[^>]*class="[^"]*truncate[^"]*text-xl[^"]*font-bold"[^>]*>\(.*\)<\/h3>.*/\1/p' "$html_file" > "$temp_dir/.title_book"
+            sed -n 's/.*<div[^>]*class="[^"]*truncate[^"]*italic"[^>]*>\(.*\)<\/div>.*/\1/p' "$html_file" > "$temp_dir/.book_author"
+            sed -n 's/.*<div[^>]*class="[^"]*text-gray-500[^"]*">\([^<]*\)<\/div>.*/\1/p' "$html_file" > "$temp_dir/.format_book"
+            sed -n 's/.*<a[^>]*href="\([^"]*\/md5\/[^"]*\)".*/\1/p' "$html_file" > "$temp_dir/.link_page"
+            ;;
+        libgen)
+            sed -n 's/.*<a[^>]*href="[^"]*book\/index\.php[^"]*">\([^<]*\)<\/a>.*/\1/p' "$html_file" > "$temp_dir/.title_book"
+            sed -n 's/.*<i>\([^<]*\)<\/i>.*/\1/p' "$html_file" > "$temp_dir/.book_author"
+            sed -n 's/.*\[pdf\].*/PDF/p' "$html_file" > "$temp_dir/.format_book"
+            sed -n 's/.*<a[^>]*href="\([^"]*get\.php[^"]*\)".*/\1/p' "$html_file" > "$temp_dir/.link_page"
+            ;;
+        zlib)
+            sed -n 's/.*<h4[^>]*>\([^<]*\)<\/h4>.*/\1/p' "$html_file" > "$temp_dir/.title_book"
+            sed -n 's/.*<div[^>]*class="authors"[^>]*>\([^<]*\)<\/div>.*/\1/p' "$html_file" > "$temp_dir/.book_author"
+            sed -n 's/.*<div[^>]*class="bookProperty property__file"[^>]*>.*: \([^<]*\)<\/div>.*/\1/p' "$html_file" > "$temp_dir/.format_book"
+            sed -n 's/.*<a[^>]*href="\([^"]*\/book\/[^"]*\)".*/\1/p' "$html_file" > "$temp_dir/.link_page"
+            ;;
+    esac
+}
+
+# Format and display scraped results
+display_results() {
+    local title_file="$temp_dir/.title_book"
+    local author_file="$temp_dir/.book_author"
+    local format_file="$temp_dir/.format_book"
+    local output_file="$temp_dir/.results"
+    
+    > "$output_file"
+    local line_num=1
+    while true; do
+        title=$(sed -n "${line_num}p" "$title_file")
+        author=$(sed -n "${line_num}p" "$author_file")
+        format=$(sed -n "${line_num}p" "$format_file")
+        if [[ -z "$title" ]]; then
+            break
+        fi
+        printf "%s | %s | %s\n" "$title" "$author" "$format" >> "$output_file"
+        line_num=$((line_num + 1))
+    done
+    
+    if [[ ! -s "$output_file" ]]; then
+        echo -e "${BRed}No results found.${White}"
+        exit 1
+    fi
+}
+
+# Get user input and fetch search results
+user_input() {
+    local source="$1"
+    local base_url="$2"
+    local agent="$3"
+    echo -e "${BYellow}Enter the name of the book to search:${White}"
+    read -p "" input
+    input=${input// /+}
+    local url="${base_url}${input}${parametros}"
+    
+    if ! wget --user-agent "$agent" -O "$temp_dir/.html" -q "$url"; then
+        echo -e "${BRed}Error: Failed to fetch search results.${White}"
+        echo "Command: wget --user-agent \"$agent\" \"$url\""
+        http_status=$(wget --spider --server-response --user-agent "$agent" "$url" 2>&1)
+        echo "$http_status"
+        exit 1
+    fi
+    
+    scrape_data "$source"
+    display_results
+}
+
+# Download selected book
+download_book() {
+    local source="$1"
+    local option="$2"
+    local agent="$3"
+    local base_url="$4"
+    local link_file="$temp_dir/.link_page"
+    local result_file="$temp_dir/.results"
+    
+    local md5_link=$(sed -n "${option}p" "$link_file")
+    if [[ -z "$md5_link" ]]; then
+        echo -e "${BRed}Error: Invalid selection.${White}"
+        exit 1
+    fi
+    
+    local selected_line=$(sed -n "${option}p" "$result_file")
+    local namedocument=$(echo "$selected_line" | cut -d'|' -f1 | sed 's/[^[:alnum:][:space:]]//g' | xargs)
+    echo -e "${BGreen}Selected: $selected_line${White}"
+    
+    # Fetch download links
+    local fetch_url
+    if [[ "$source" == "libgen" ]]; then
+        fetch_url="${md5_link}"
+    else
+        fetch_url="${base_url}${md5_link}"
+    fi
+    
+    local curl_cmd="curl -s -A \"$agent\" \"$fetch_url\""
+    if [[ "$source" == "zlib" && "$base_url" == *".onion"* ]]; then
+        if command -v torsocks &>/dev/null; then
+            curl_cmd="torsocks $curl_cmd"
+        else
+            echo -e "${BRed}Error: torsocks required for .onion URLs.${White}"
+            exit 1
+        fi
+    fi
+    
+    eval "$curl_cmd" \
+        | sed -n '/download-link\|href/p' \
+        | grep -o "href=['\"][^'\"]*['\"]" \
+        | sed "s/href=['\"]\([^'\"]*\)['\"]/\1/" > "$temp_dir/.download_links"
+    
+    if [[ ! -s "$temp_dir/.download_links" ]]; then
+        echo -e "${BRed}Failed to retrieve download links.${White}"
+        exit 1
+    fi
+    
+    # Create download directory if it doesn't exist
+    mkdir -p "$download_dir"
+    
+    # Process download links
+    readarray -t urls < "$temp_dir/.download_links"
+    local downloaded=false
+    for url in "${urls[@]}"; do
+        local full_url
+        if [[ $url == /* && "$source" != "libgen" ]]; then
+            full_url="${base_url}${url}"
+        else
+            full_url="$url"
+        fi
+        
+        filename=$(basename "$full_url")
+        extension="${filename##*.}"
+        shortname=$(echo "$filename" | cut -c 1-50)
+        
+        if [[ $filename =~ \.(pdf|epub|txt|zip|rar|djvu|fb2|mobi|doc|docx|cbz|rtf|azw3|azw|cbr)$ ]]; then
+            local wget_cmd="wget -nc -P \"$temp_dir\" --read-timeout=10 --user-agent \"$agent\" \"$full_url\""
+            if [[ "$source" == "zlib" && "$base_url" == *".onion"* ]]; then
+                if command -v torsocks &>/dev/null; then
+                    wget_cmd="torsocks $wget_cmd"
+                else
+                    echo -e "${BRed}Error: torsocks required for .onion URLs.${White}"
+                    exit 1
+                fi
+            fi
+            
+            if eval "$wget_cmd"; then
+                mv "$temp_dir/$filename" "$download_dir/$namedocument.$extension"
+                echo -e "${BGreen}Download finished: $download_dir/$namedocument.$extension${White}"
+                downloaded=true
+                break
+            else
+                echo -e "${Yellow}Failed to download: $full_url${White}"
+            fi
+        fi
+    done
+    
+    if [[ "$downloaded" == false ]]; then
+        echo -e "${BYellow}If the download doesn't start, try these links in your browser:${White}"
+        cat "$temp_dir/.download_links" | while read -r link; do
+            if [[ $link == /* && "$source" != "libgen" ]]; then
+                echo "${base_url}${link}"
+            else
+                echo "$link"
+            fi
+        done
+        exit 1
+    fi
+}
+
+# Main script
+check_dependencies
+agent=$(get_user_agent)
+parametros=""
+selected_source="$default_source"
+base_url=""
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --version)
+            version_info
+            ;;
+        --help|-h)
+            help_info
+            ;;
+        --source)
+            if [[ -n "$2" && "$2" != --* ]]; then
+                selected_source="$2"
+                shift
+            else
+                echo -e- e "${BRed}Error: A value for --source was expected${White}"
+                exit 1
+            fi
+            ;;
+        --external_download)
+            if [[ "$selected_source" == "anna" ]]; then
+                parametros="${parametros}&acc=external_download"
+            fi
+            ;;
+        --lib)
+            if [[ "$selected_source" == "anna" ]]; then
+                parametros="${parametros}&src=lgli"
+            fi
+            ;;
+        --es)
+            if [[ "$selected_source" == "anna" || "$selected_source" == "zlib" ]]; then
+                parametros="${parametros}&sort=&lang=es"
+            fi
+            ;;
+        --en)
+            if [[ "$selected_source" == "anna" || "$selected_source" == "zlib" ]]; then
+                parametros="${parametros}&sort=&lang=en"
+            fi
+            ;;
+        --pdf)
+            if [[ "$selected_source" == "anna" || "$selected_source" == "zlib" ]]; then
+                parametros="${parametros}&ext=pdf"
+            fi
+            ;;
+        --epub)
+            if [[ "$selected_source" == "anna" || "$selected_source" == "zlib" ]]; then
+                parametros="${parametros}&ext=epub"
+            fi
+            ;;
+        --author)
+            if [[ -n "$2" && "$2" != --* ]]; then
+                autor=$(echo "$2" | sed 's/ /+/g')
+                if [[ "$selected_source" == "anna" ]]; then
+                    parametros="${parametros}&termtype_1=author&termval_1=${autor}"
+                elif [[ "$selected_source" == "zlib" ]]; then
+                    parametros="${parametros}&author=${autor}"
+                fi
+                shift
+            else
+                echo -e "${BRed}Error: A value for --author was expected${White}"
+                exit 1
+            fi
+            ;;
+        *)
+            echo -e "${BRed}Unknown option: $1${White}"
+            help_info
+            ;;
+    esac
+    shift
+done
+
+# Set base URL for selected source
+for src in "${sources[@]}"; do
+    if [[ "$src" == "$selected_source="* ]]; then
+        base_url="${src#*=}"
+        break
+    fi
+done
+
+if [[ -z "$base_url" ]]; then
+    echo -e "${BRed}Error: Invalid source '$selected_source'. Valid sources: anna, libgen, zlib${White}"
+    exit 1
+fi
+
+# Check source availability
+check_source "$base_url"
+
+# Get user input and search
+user_input "$selected_source" "$base_url" "$agent"
+
+# Interactive selection with fzf
+export FZF_DEFAULT_OPTS="--bind='ctrl-x:execute(exit 0)+abort'"
+readarray -t lines < "$temp_dir/.results"
+options=()
+for i in "${!lines[@]}"; do
+    options+=("$((i+1)) ${lines[$i]}")
+done
+
+option=$(printf '%s\n' "${options[@]}" | fzf --prompt="Select a book: " | awk '{print $1}')
+
+if [[ "$option" =~ ^[0-9]+$ && "$option" -ge 1 && "$option" -le "${#lines[@]}" ]]; then
+    download_book "$selected_source" "$option" "$agent" "$base_url"
+else
+    echo -e "${BRed}Invalid selection or no selection made.${White}"
+    exit 1
+fi

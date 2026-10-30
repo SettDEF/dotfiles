@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Cupcake"
+dark = false
+derived = true
+
+[colors]
+grey1 = "#fbf1f2"
+grey2 = "#f2f1f4"
+grey3 = "#d8d5dd"
+grey4 = "#bfb9c6"
+grey5 = "#a59daf"
+grey6 = "#8b8198"
+purple1 = "#72677e"
+grey7 = "#585062"
+red1 = "#d57e85"
+orange1 = "#ebb790"
+yellow1 = "#dcb16c"
+yellow2 = "#a3b367"
+cyan1 = "#69a9a7"
+blue1 = "#7297b9"
+purple2 = "#bb99b4"
+orange2 = "#baa58c"
+
+[roles]
+background = "#fbf1f2"
+foreground = "#585062"
+primary = "#d57e85"

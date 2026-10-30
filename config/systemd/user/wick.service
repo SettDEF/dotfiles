@@ -1,0 +1,11 @@
+[Unit]
+Description=Wick trading workstation (market data, paper account, alerts)
+After=network-online.target
+
+[Service]
+ExecStart=/home/caesar/.local/bin/wick
+Restart=on-failure
+Nice=5
+
+[Install]
+WantedBy=default.target

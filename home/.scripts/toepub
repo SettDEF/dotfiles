@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Dependencies: pdftohtml (from poppler), pandoc, epy
+# Install: sudo pacman -S poppler pandoc
+# AUR: paru -S epy
+
+set -e
+
+# Color setup for progress output
+bold=$(tput bold)
+reset=$(tput sgr0)
+
+pdf="$1"
+
+if [[ ! -f "$pdf" ]]; then
+    echo "${bold}Error:${reset} File not found: $pdf"
+    exit 1
+fi
+
+echo "${cyan}➤ Creating temporary workspace...${reset}"
+tmpdir="$(mktemp -d)"
+htmlfile="$tmpdir/tmp.html"
+epubfile="$tmpdir/tmp.epub"
+
+echo "${cyan}➤ Converting PDF to HTML...${reset}"
+pdftohtml -noframes -s -q "$pdf" "$htmlfile"
+echo "${green}✔ Done converting to HTML${reset}"
+
+echo "${cyan}➤ Converting HTML to EPUB...${reset}"
+pandoc "$htmlfile" -o "$epubfile"
+echo "${green}✔ EPUB file created${reset}"
+
+echo "${cyan}➤ Opening EPUB with epy...${reset}"
+epy "$epubfile"
+
+echo "${cyan}➤ Cleaning up temporary files...${reset}"
+rm -rf "$tmpdir"
+echo "${green}✔ Done!${reset}"

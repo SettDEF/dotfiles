@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# share: what is shared (files, links, text, the clipboard) → matching apps and targets → the shell's share panel
+# usage: share FILE|URL|TEXT...   share --clip   echo text | share   share --json (print, no panel)
+#        share --new "Upload" "rsync {} nuke:/srv/" files   (a new target in one line)
+set -uo pipefail
+run="${XDG_RUNTIME_DIR:-/tmp}/share"; mkdir -p "$run"
+targets="${SHARE_TARGETS:-$HOME/.config/share/targets}"
+json_only=0; items=()
+# share --new "Name" "command {}" [takes: url files image video audio text any] — a target in one line
+if [[ "${1:-}" == --new ]]; then
+    name="${2:?share --new NAME COMMAND [TAKES...]}"; cmd="${3:?share --new NAME COMMAND [TAKES...]}"; shift 3
+    takes="${*:-any}"; slug=$(tr '[:upper:]' '[:lower:]' <<<"$name" | tr -cs 'a-z0-9' - | sed 's/^-//;s/-$//')
+    [[ "$cmd" == *"{}"* ]] && line="${cmd//\{\}/\"\$x\"}" || line="$cmd \"\$x\""
+    out="$targets/60-$slug"; mkdir -p "$targets"
+    printf '%s\n' "#!/usr/bin/env bash" "# share-name: $name" "# share-icon: bolt" "# share-accepts: $takes" "# share-group: open" \
+        "# made with share --new; edit freely (\$@ is what was shared)" "for x in \"\$@\"; do setsid -f $line >/dev/null 2>&1; done" > "$out"
+    chmod +x "$out"; echo "share: added $out"; exit 0
+fi
+for a in "$@"; do
+    case "$a" in
+        --json) json_only=1 ;;
+        --clip)
+            mime=$(wl-paste --list-types 2>/dev/null | grep -m1 '^image/' || true)
+            if [[ -n "$mime" ]]; then f="$run/clip-$(date +%s).${mime#image/}"; wl-paste --type "$mime" > "$f"; items+=("$f")
+            else items+=("$(wl-paste --no-newline 2>/dev/null)"); fi ;;
+        -h|--help) sed -n "2,4p" "$0" | sed 's/^# //'; exit 0 ;;
+        *) items+=("$a") ;;
+    esac
+done
+if [[ ${#items[@]} -eq 0 && ! -t 0 ]]; then items+=("$(cat)"); fi
+[[ ${#items[@]} -eq 0 ]] && { echo "share: nothing to share (see --help)" >&2; exit 1; }
+
+# text that is a file name or path (selected in a terminal: scripts/x.py) → that file, if it can be found:
+# as written, relative to the focused window's working folder, then a short fd search in projects and config
+from=""
+find_path() {
+    local s="$1" p
+    [[ "$s" =~ ^[~./]?[A-Za-z0-9_.@+-]+(/[A-Za-z0-9_.@+-]+)*/?$ && ( "$s" == */* || "$s" =~ \.[A-Za-z0-9]{1,6}$ ) ]] || return 1
+    p="${s/#\~/$HOME}"
+    [[ -e "$p" ]] && { realpath "$p"; return 0; }
+    # the focused window's process tree: the deepest child's cwd (the shell in a terminal)
+    local pid; pid=$(hyprctl activewindow -j 2>/dev/null | jq -r ".pid // empty")
+    while [[ -n "$pid" ]]; do
+        [[ -e "/proc/$pid/cwd/$p" ]] && { realpath "/proc/$pid/cwd/$p"; return 0; }
+        pid=$(pgrep -P "$pid" | tail -n1)
+    done
+    local hit
+    hit=$(timeout 1.5 fd --hidden --no-ignore-vcs --full-path --max-results 1 --exclude .git --exclude node_modules --exclude target "/${p#./}$" /mnt/storage/dev/projects "$HOME/.config" "$HOME/.scripts" 2>/dev/null | head -n1)
+    [[ -n "$hit" ]] && { echo "$hit"; return 0; }
+    return 1
+}
+if [[ ${#items[@]} -eq 1 && ! -e "${items[0]}" && ! "${items[0]}" =~ :// ]]; then
+    if hit=$(find_path "${items[0]}"); then from="${items[0]}"; items=("$hit"); fi
+fi
+
+# each item's kind: url, dir, image, video, audio, text-file, file, text
+kind_of() {
+    local x="$1"
+    if [[ "$x" =~ ^[a-zA-Z][a-zA-Z0-9+.-]*:// ]]; then echo url; return; fi
+    if [[ -d "$x" ]]; then echo dir; return; fi
+    if [[ -f "$x" ]]; then
+        local m; m=$(file -b --mime-type -- "$x")
+        case "$m" in image/*) echo image ;; video/*) echo video ;; audio/*) echo audio ;; text/*|application/json|application/xml) echo text-file ;; *) echo file ;; esac
+        return
+    fi
+    echo text
+}
+kinds=(); mimes=(); for x in "${items[@]}"; do
+    k=$(kind_of "$x"); kinds+=("$k")
+    [[ -f "$x" ]] && mimes+=("$(file -b --mime-type -- "$x")") || mimes+=("")
+done
+# the whole share's kind: one kind, else "file" for all files, else "mixed"
+kind=$(printf '%s\n' "${kinds[@]}" | sort -u)
+if [[ $(wc -l <<<"$kind") -gt 1 ]]; then
+    if printf '%s\n' "${kinds[@]}" | grep -qvE '^(image|video|audio|text-file|file|dir)$'; then kind=mixed; else kind=files; fi
+fi
+
+# targets: scripts whose header says what they take
+#   # share-name: Play in mpv
+#   # share-icon: play_circle          (Material Symbols)
+#   # share-accepts: video audio url:youtube\.com|youtu\.be   (kinds; url:REGEX; any)
+#   # share-group: open|send|copy|save
+tjson="[]"
+if [[ -d "$targets" ]]; then
+    for t in "$targets"/*; do
+        [[ -x "$t" && -f "$t" ]] || continue
+        h=$(head -n 12 "$t")
+        name=$(sed -n 's/^# share-name: *//p' <<<"$h"); [[ -z "$name" ]] && continue
+        acc=$(sed -n 's/^# share-accepts: *//p' <<<"$h"); ok=0
+        for a in $acc; do
+            case "$a" in
+                any) ok=1 ;;
+                url:*) [[ "$kind" == url ]] && grep -qE "${a#url:}" <<<"${items[0]}" && ok=1 ;;
+                files) [[ "$kind" == files || "$kind" =~ ^(image|video|audio|text-file|file)$ ]] && ok=1 ;;
+                *) [[ "$kind" == "$a" ]] && ok=1 ;;
+            esac
+        done
+        [[ $ok == 1 ]] || continue
+        tjson=$(jq -c --arg id "$(basename "$t")" --arg path "$t" --arg name "$name" \
+            --arg icon "$(sed -n 's/^# share-icon: *//p' <<<"$h")" --arg group "$(sed -n 's/^# share-group: *//p' <<<"$h")" \
+            '. + [{id: $id, path: $path, name: $name, icon: ($icon // "bolt"), group: (if $group == "" then "open" else $group end), app: false}]' <<<"$tjson")
+    done
+fi
+
+# apps that open it (like Android's share sheet): desktop entries by mime type, browsers for links
+want=""
+case "$kind" in url) want="x-scheme-handler/${items[0]%%:*}" ;; image|video|audio|text-file|file) want="${mimes[0]}" ;; esac
+ajson="[]"
+if [[ -n "$want" ]]; then
+    base="${want%%/*}/\*"
+    for d in "$HOME/.local/share/applications" /usr/share/applications /var/lib/flatpak/exports/share/applications; do
+        [[ -d "$d" ]] || continue
+        grep -lsE "^MimeType=.*(${want//+/\\+}|${base//\*/\\*});" "$d"/*.desktop 2>/dev/null
+    done | awk -F/ '!seen[$NF]++' | head -n 40 | while read -r f; do
+        grep -qE '^(NoDisplay|Hidden)=true' "$f" && continue
+        n=$(grep -m1 '^Name=' "$f" | cut -d= -f2-); i=$(grep -m1 '^Icon=' "$f" | cut -d= -f2-)
+        jq -nc --arg id "$(basename "$f")" --arg path "$f" --arg name "$n" --arg icon "$i" '{id: $id, path: $path, name: $name, icon: $icon, group: "apps", app: true}'
+    done | jq -sc '.[0:16]' > "$run/apps.json"
+    ajson=$(cat "$run/apps.json")
+fi
+
+out=$(jq -nc --arg kind "$kind" --argjson t "$tjson" --argjson a "$ajson" --arg at "$(date +%s%N)" --arg from "$from" \
+    --args '{at: $at, from: $from, kind: $kind, items: $ARGS.positional, targets: ($t + $a)}' "${items[@]}")
+if [[ $json_only == 1 ]]; then echo "$out"; exit 0; fi
+printf '%s\n' "$out" > "$run/item.json"
+qs -c ii ipc call share open >/dev/null 2>&1 || { echo "share: the shell's share panel is not running" >&2; exit 1; }

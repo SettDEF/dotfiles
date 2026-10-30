@@ -1,0 +1,12 @@
+{
+  "accounts": [
+    {
+      "id": "github:default",
+      "provider": "github",
+      "host": "github.com",
+      "user": "default",
+      "token": "[REDACTED]"
+    }
+  ],
+  "default_account": "github:default"
+}

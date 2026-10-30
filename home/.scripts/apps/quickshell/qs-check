@@ -1,0 +1,102 @@
+#!/bin/sh
+# qs-check — did that edit break the shell?
+#
+# Two passes, because neither alone is sufficient:
+#
+#   qmllint   catches syntax errors and FINAL-member shadowing statically, but
+#             NOT duplicate signal handlers ("Property value set multiple
+#             times") — that is a runtime engine error, and it broke the shell
+#             twice in one session.
+#   reload    the quickshell log is the only thing that reports every class of
+#             failure, but it is CUMULATIVE: old errors sit there forever, so a
+#             naive `grep ERROR` always looks broken. This diffs the log around
+#             a forced reload and reports only what is NEW.
+#
+# Usage:
+#   qs-check                 lint everything, then reload-test
+#   qs-check <file.qml>      lint just that file, then reload-test
+#   qs-check --lint          static pass only (no reload)
+
+CONFIG_DIR="$HOME/.config/quickshell"
+SHELL_NAME=ii
+QMLLINT=/usr/lib/qt6/bin/qmllint
+QML_IMPORTS="/usr/lib/qt6/qml"
+
+cd "$CONFIG_DIR" 2>/dev/null || { echo "qs-check: no $CONFIG_DIR"; exit 1; }
+
+lint() {
+    [ -x "$QMLLINT" ] || { echo "  (qmllint not found, skipping static pass)"; return 0; }
+    files="$1"
+    [ -z "$files" ] && files=$(find "$SHELL_NAME" -name '*.qml' -not -path '*/node_modules/*')
+    fails=0
+    for f in $files; do
+        # Only syntax and shadowing are treated as failures. The unresolved
+        # type/import noise is expected: qmllint cannot see quickshell's own
+        # modules, and gating on that would make the whole check useless.
+        out=$("$QMLLINT" -I "$QML_IMPORTS" -I . "$f" 2>&1)
+        if [ $? -eq 255 ]; then
+            echo "  SYNTAX  $f"
+            echo "$out" | grep -iE "syntax|Expected token" | head -2 | sed 's/^/          /'
+            fails=$((fails + 1))
+        fi
+        echo "$out" | grep -q "shadows final member" && {
+            echo "  SHADOW  $f"
+            echo "$out" | grep "shadows final member" | head -2 | sed 's/^/          /'
+            fails=$((fails + 1))
+        }
+    done
+    return $fails
+}
+
+reload_test() {
+    # a reload while the lock screen is up unlocks the session: never then
+    if [ "$(qs -c "$SHELL_NAME" ipc call lock locked 2>/dev/null | head -1)" = "true" ]; then
+        echo "  screen locked: no reload test (a reload unlocks it)"
+        return 1
+    fi
+    before=$(qs -c "$SHELL_NAME" log 2>/dev/null | wc -l)
+    if [ "$before" -eq 0 ]; then
+        echo "  shell not running — start it before the reload test"
+        return 0
+    fi
+    # Touching any file makes quickshell re-read the whole config. `touch`
+    # rather than appending a newline: appending left a blank line behind on
+    # every run, so the repo came out of a check dirty.
+    touch "$SHELL_NAME/shell.qml"
+    sleep 5
+    new=$(qs -c "$SHELL_NAME" log 2>/dev/null | tail -n +"$((before + 1))")
+    errs=$(printf '%s\n' "$new" | grep -iE "ERROR|Expected token|multiple times|unavailable|Syntax error")
+    # saving the file already reloaded the shell, before this ran, and a failed load is not
+    # logged again on the next reload: also any recent error naming the checked file
+    if [ -n "$CHECKED" ]; then
+        old=$(qs -c "$SHELL_NAME" log 2>/dev/null | tail -n 400 | grep -iE "ERROR|unavailable|Syntax error" | grep -F "$(basename "$CHECKED")")
+        errs=$(printf '%s\n%s' "$errs" "$old" | grep -v '^$' | sort -u)
+    fi
+    if [ -n "$errs" ]; then
+        echo "  NEW ERRORS after reload:"
+        printf '%s\n' "$errs" | head -10 | sed 's/^/    /'
+        return 1
+    fi
+    echo "  reload clean"
+    return 0
+}
+
+case "${1:-all}" in
+    --lint)
+        echo "static pass:"; lint ""; s=$?
+        [ $s -eq 0 ] && echo "  no syntax or shadowing problems"
+        exit $s ;;
+    --help|-h)
+        sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+    all)
+        echo "static pass:"; lint ""; a=$?
+        [ $a -eq 0 ] && echo "  no syntax or shadowing problems"
+        echo "reload test:"; reload_test; b=$?
+        exit $((a + b)) ;;
+    *)
+        CHECKED="$1"
+        echo "static pass:"; lint "$1"; a=$?
+        [ $a -eq 0 ] && echo "  clean: $1"
+        echo "reload test:"; reload_test; b=$?
+        exit $((a + b)) ;;
+esac

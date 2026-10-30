@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Xcode Dusk"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#282b35"
+grey2 = "#3d4048"
+grey3 = "#53555d"
+grey4 = "#686a71"
+grey5 = "#7e8086"
+grey6 = "#939599"
+grey7 = "#a9aaae"
+grey8 = "#bebfc2"
+purple1 = "#b21889"
+purple2 = "#786dc5"
+cyan1 = "#438288"
+red1 = "#df0002"
+cyan2 = "#00a0be"
+purple3 = "#790ead"
+purple4 = "#b21889"
+orange1 = "#c77c48"
+
+[roles]
+background = "#282b35"
+foreground = "#bebfc2"
+primary = "#786dc5"

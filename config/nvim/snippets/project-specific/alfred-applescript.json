@@ -1,0 +1,15 @@
+{
+  "Get Alfred Env": {
+    "body": "set ${1:envvar} to (system attribute \"${1:envvar}\")",
+    "prefix": "Get Alfred Env"
+  },
+  "run (Alfred)": {
+    "body": [
+      "on run argv",
+      "\tset query to item 1 of argv",
+      "\t$0",
+      "end run"
+    ],
+    "prefix": "run (Alfred)"
+  }
+}

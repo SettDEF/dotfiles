@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# lutris-trace — launch a Lutris game and stay attached until every
+# process it spawned is really gone, mirroring all output to a log.
+#
+# Why this exists: Lutris's own window swallows the real crash message
+# when its wrapper exits before the game does. The result is a game
+# that "idk crashed again" with nothing on screen to say why. This
+# triggers the launch, follows ~/.cache/lutris/lutris.log from the
+# moment of launch, keeps the terminal open while any wine child is
+# alive, and greps the collected lines for the usual error signatures.
+#
+# Learned the hard way: invoking `lutris lutris:rungame/<slug>` hands
+# the launch off to an already-running Lutris via DBus and the invoking
+# process exits in milliseconds — so capturing its stdout tells you
+# nothing. Lutris's own log is the actual source of truth.
+#
+# Logs land in /tmp/lutris-trace-<slug>-<timestamp>.log.
+#
+# Usage:
+#   lutris-trace            # defaults to mw4
+#   lutris-trace <slug>     # any other Lutris game slug
+#   lutris-trace -h         # this help
+#
+# Example:
+#   lutris-trace mw4
+
+set -euo pipefail
+
+SLUG="${1:-mw4}"
+case "$SLUG" in
+    -h|--help)
+        sed -n '2,/^$/{s/^# \?//;p}' "$0"
+        exit 0
+        ;;
+esac
+
+command -v lutris >/dev/null || { echo "lutris-trace: lutris not on PATH" >&2; exit 2; }
+
+LUTRIS_LOG="$HOME/.cache/lutris/lutris.log"
+[[ -f "$LUTRIS_LOG" ]] || { echo "lutris-trace: no Lutris log at $LUTRIS_LOG (open Lutris at least once first)" >&2; exit 2; }
+
+TS=$(date +%Y%m%d-%H%M%S)
+LOG="/tmp/lutris-trace-${SLUG}-${TS}.log"
+
+printf '>> slug=%s\n>> log=%s\n' "$SLUG" "$LOG" >&2
+
+# These only take effect if the Lutris game config inherits them; Lutris's
+# own invocation ignores most of them, but they help if the trace is used
+# on a plain-wine entry.
+export PROTON_LOG=1
+export DXVK_LOG_LEVEL=info
+export WINEDEBUG="${WINEDEBUG:-err+all,fixme-all}"
+
+START_BYTES=$(stat -c '%s' "$LUTRIS_LOG")
+
+cleanup() {
+    [[ -n "${TAIL_PID:-}" ]] && kill "$TAIL_PID" 2>/dev/null || true
+    END_BYTES=$(stat -c '%s' "$LUTRIS_LOG" 2>/dev/null || echo "$START_BYTES")
+    if (( END_BYTES > START_BYTES )); then
+        tail -c $((END_BYTES - START_BYTES)) "$LUTRIS_LOG" >>"$LOG" 2>/dev/null || true
+    fi
+    printf '\n>> done\n>> log at %s\n\n--- lines that look like errors ---\n' "$LOG" >&2
+    if ! grep -iE 'fatal|segfault|killed by signal|aborted|unhandled|wine: Call from|^err:|cannot find|not found|crashed|terminated with code|very short time|0x[0-9a-f]{8}' "$LOG" | head -60 >&2; then
+        echo "(nothing matched — check the full log)" >&2
+    fi
+}
+trap cleanup EXIT
+
+# Fire the launch (returns almost immediately via DBus handoff).
+lutris -d "lutris:rungame/${SLUG}" >/dev/null 2>&1 || true
+
+# Follow Lutris's own log from the point of launch, writing to our log.
+tail -c +$((START_BYTES + 1)) -f "$LUTRIS_LOG" >>"$LOG" 2>/dev/null &
+TAIL_PID=$!
+
+# Mirror live to the user's terminal too.
+tail -f "$LOG" &
+TERM_TAIL_PID=$!
+
+# Give wine time to spawn.
+sleep 6
+
+# Hold the terminal while any wine child is alive. wineserver is the
+# "prefix still exists" signal; cod.exe covers the brief window before
+# wineserver has fully come up or after it has gone down early.
+while pgrep -x wineserver >/dev/null 2>&1 || pgrep -f '[c]od\.exe' >/dev/null 2>&1; do
+    sleep 2
+done
+
+# Give Lutris a moment to write its exit lines.
+sleep 2
+
+kill "$TERM_TAIL_PID" 2>/dev/null || true
+
+exit 0

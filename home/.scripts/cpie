@@ -1,0 +1,2064 @@
+#!/usr/bin/env lua
+
+--[[
+Enhanced Color Tool v2.1
+Features:
+- Advanced color palette generation
+- Foreground/background contrast analysis
+- WCAG compliance testing
+- Colorblind simulation
+- Multiple output formats (terminal, JSON, CSS, SCSS)
+- Smart color naming system
+- Custom variable naming for SCSS
+]]
+
+-- Configuration ---------------------------------------------------------------
+local Config = {
+	min_col_widths = {
+		hex = 8,
+		rgb = 10,
+		hsl = 17,
+		name = 12,
+		swatch = 6,
+		contrast_white = 12,
+		contrast_black = 12,
+		protanopia = 12,
+		deuteranopia = 12,
+		tritanopia = 12,
+		wcag_aa = 12,
+		wcag_aaa = 12,
+		luminance = 12,
+		fg_score = 10,
+		fg_contrast = 10,
+		fg_versatility = 12,
+	},
+	max_col_widths = {
+		hex = 8,
+		rgb = 12,
+		hsl = 20,
+		name = 20,
+		swatch = 12,
+		contrast_white = 14,
+		contrast_black = 14,
+		protanopia = 14,
+		deuteranopia = 14,
+		tritanopia = 14,
+		wcag_aa = 14,
+		wcag_aaa = 14,
+		luminance = 14,
+		fg_score = 12,
+		fg_contrast = 12,
+		fg_versatility = 14,
+	},
+	border_chars = {
+		top_left = "┌",
+		top_right = "┐",
+		bottom_left = "└",
+		bottom_right = "┘",
+		horizontal = "─",
+		vertical = "│",
+		separator = "┼",
+		top_t = "┬",
+		bottom_t = "┴",
+		left_t = "├",
+		right_t = "┤",
+	},
+	palette_methods = {
+		lightness = { name = "Lightness Variations", step = 0.15 },
+		saturation = { name = "Saturation Variations", step = 0.2 },
+		hue = { name = "Hue Variations", step = 30, saturation = 0.85 },
+		complementary = { name = "Complementary Colors" },
+		triadic = { name = "Triadic Colors" },
+		analogous = { name = "Analogous Colors", step = 25 },
+		blend = { name = "Blended Colors" },
+	},
+	fg_bg_test = {
+		min_contrast = 4.5, -- WCAG AA standard
+		sample_text = "TEXT", -- Text to display in samples
+		sample_width = 4, -- Width of sample text
+		heatmap = {
+			poor = { threshold = 3.0, color = { 255, 0, 0 } }, -- Red
+			fair = { threshold = 4.5, color = { 255, 165, 0 } }, -- Orange
+			good = { threshold = 7.0, color = { 0, 128, 0 } }, -- Green
+			excellent = { color = { 0, 100, 0 } }, -- Dark Green
+		},
+		score_weights = {
+			contrast = 0.5,
+			luminance = 0.3,
+			versatility = 0.2,
+		},
+	},
+	color_names = {
+		{ hex = "#FF0000", name = "Red", threshold = 50 },
+		{ hex = "#00FF00", name = "Lime", threshold = 50 },
+		{ hex = "#0000FF", name = "Blue", threshold = 50 },
+		{ hex = "#FFFF00", name = "Yellow", threshold = 50 },
+		{ hex = "#FF00FF", name = "Magenta", threshold = 50 },
+		{ hex = "#00FFFF", name = "Cyan", threshold = 50 },
+		{ hex = "#000000", name = "Black", threshold = 5 },
+		{ hex = "#FFFFFF", name = "White", threshold = 5 },
+		{ hex = "#808080", name = "Gray", threshold = 30 },
+		{ hex = "#800000", name = "Maroon", threshold = 40 },
+		{ hex = "#008000", name = "Green", threshold = 40 },
+		{ hex = "#000080", name = "Navy", threshold = 40 },
+		{ hex = "#800080", name = "Purple", threshold = 40 },
+		{ hex = "#008080", name = "Teal", threshold = 40 },
+		{ hex = "#808000", name = "Olive", threshold = 40 },
+		{ hex = "#C0C0C0", name = "Silver", threshold = 30 },
+		{ hex = "#FFA500", name = "Orange", threshold = 40 },
+		{ hex = "#FFC0CB", name = "Pink", threshold = 40 },
+		{ hex = "#FF4500", name = "Orange Red", threshold = 40 },
+		{ hex = "#FF8C00", name = "Dark Orange", threshold = 40 },
+		{ hex = "#FF6347", name = "Tomato", threshold = 40 },
+		{ hex = "#FFD700", name = "Gold", threshold = 40 },
+		{ hex = "#B8860B", name = "Dark Goldenrod", threshold = 40 },
+		{ hex = "#DAA520", name = "Goldenrod", threshold = 40 },
+		{ hex = "#006400", name = "Dark Green", threshold = 40 },
+		{ hex = "#90EE90", name = "Light Green", threshold = 40 },
+		{ hex = "#32CD32", name = "Lime Green", threshold = 40 },
+		{ hex = "#00FA9A", name = "Medium Spring Green", threshold = 40 },
+		{ hex = "#00FF7F", name = "Spring Green", threshold = 40 },
+		{ hex = "#2E8B57", name = "Sea Green", threshold = 40 },
+		{ hex = "#66CDAA", name = "Medium Aquamarine", threshold = 40 },
+		{ hex = "#7FFFD4", name = "Aquamarine", threshold = 40 },
+		{ hex = "#0000CD", name = "Medium Blue", threshold = 40 },
+		{ hex = "#4169E1", name = "Royal Blue", threshold = 40 },
+		{ hex = "#1E90FF", name = "Dodger Blue", threshold = 40 },
+		{ hex = "#00BFFF", name = "Deep Sky Blue", threshold = 40 },
+		{ hex = "#87CEEB", name = "Sky Blue", threshold = 40 },
+		{ hex = "#4682B4", name = "Steel Blue", threshold = 40 },
+		{ hex = "#6A5ACD", name = "Slate Blue", threshold = 40 },
+		{ hex = "#9370DB", name = "Medium Purple", threshold = 40 },
+		{ hex = "#8A2BE2", name = "Blue Violet", threshold = 40 },
+		{ hex = "#9400D3", name = "Dark Violet", threshold = 40 },
+		{ hex = "#9932CC", name = "Dark Orchid", threshold = 40 },
+		{ hex = "#BA55D3", name = "Medium Orchid", threshold = 40 },
+		{ hex = "#FF69B4", name = "Hot Pink", threshold = 40 },
+		{ hex = "#DB7093", name = "Pale Violet Red", threshold = 40 },
+		{ hex = "#CD5C5C", name = "Indian Red", threshold = 40 },
+		{ hex = "#F08080", name = "Light Coral", threshold = 40 },
+		{ hex = "#A52A2A", name = "Brown", threshold = 40 },
+		{ hex = "#D2691E", name = "Chocolate", threshold = 40 },
+		{ hex = "#B22222", name = "Firebrick", threshold = 40 },
+		{ hex = "#E9967A", name = "Dark Salmon", threshold = 40 },
+		{ hex = "#FA8072", name = "Salmon", threshold = 40 },
+		{ hex = "#FFA07A", name = "Light Salmon", threshold = 40 },
+		{ hex = "#F5DEB3", name = "Wheat", threshold = 40 },
+		{ hex = "#D2B48C", name = "Tan", threshold = 40 },
+		{ hex = "#BC8F8F", name = "Rosy Brown", threshold = 40 },
+		{ hex = "#778899", name = "Light Slate Gray", threshold = 40 },
+		{ hex = "#708090", name = "Slate Gray", threshold = 40 },
+		{ hex = "#2F4F4F", name = "Dark Slate Gray", threshold = 40 },
+		{ hex = "#696969", name = "Dim Gray", threshold = 40 },
+		{ hex = "#A9A9A9", name = "Dark Gray", threshold = 40 },
+		{ hex = "#D3D3D3", name = "Light Gray", threshold = 40 },
+	},
+}
+
+-- Utility Module --------------------------------------------------------------
+local Utils = {}
+
+function Utils.get_terminal_width()
+	local handle = io.popen("tput cols 2>/dev/null || echo 80")
+	local result = handle:read("*n")
+	handle:close()
+	return result or 80
+end
+
+function Utils.is_ansi_supported()
+	local no_color = os.getenv("NO_COLOR")
+	local term = os.getenv("TERM") or ""
+	local colorterm = os.getenv("COLORTERM") or ""
+	return not no_color
+		and (
+			term:match("xterm")
+			or term:match("screen")
+			or term:match("tmux")
+			or term:match("linux")
+			or term:match("color")
+			or colorterm == "truecolor"
+		)
+end
+
+function Utils.update_progress(message)
+	if not os.getenv("QUIET") then
+		io.write("\r" .. string.rep(" ", Utils.get_terminal_width()))
+		io.write("\r" .. message)
+		io.flush()
+	end
+end
+
+function Utils.clear_progress()
+	if not os.getenv("QUIET") then
+		io.write("\r" .. string.rep(" ", Utils.get_terminal_width()) .. "\r")
+		io.flush()
+	end
+end
+
+function Utils.clamp(value, min_val, max_val)
+	return math.max(min_val, math.min(max_val, value))
+end
+
+function Utils.round(value, decimals)
+	local multiplier = 10 ^ (decimals or 0)
+	return math.floor(value * multiplier + 0.5) / multiplier
+end
+
+-- String Class ----------------------------------------------------------------
+local String = {}
+String.__index = String
+
+function String:new(str)
+	return setmetatable({ value = tostring(str or "") }, self)
+end
+
+function String:__tostring()
+	return self.value
+end
+
+function String:pad_right(width)
+	local visible_length = #self.value:gsub("\27%[[%d;]*m", "")
+	return self.value .. string.rep(" ", math.max(0, width - visible_length))
+end
+
+function String:colorize(fg_r, fg_g, fg_b, bg_r, bg_g, bg_b)
+	if not Utils.is_ansi_supported() then
+		return self
+	end
+	local colorterm = os.getenv("COLORTERM") or ""
+	local colorized
+	if colorterm == "truecolor" then
+		-- Use truecolor (24-bit) ANSI codes
+		colorized = string.format(
+			"\27[38;2;%d;%d;%dm\27[48;2;%d;%d;%dm%s\27[0m",
+			fg_r,
+			fg_g,
+			fg_b,
+			bg_r,
+			bg_g,
+			bg_b,
+			self.value
+		)
+	else
+		-- Fallback to 256-color ANSI codes
+		local function rgb_to_256(r, g, b)
+			-- Approximate RGB to 256-color index
+			r = math.floor((r / 255) * 5)
+			g = math.floor((g / 255) * 5)
+			b = math.floor((b / 255) * 5)
+			return 16 + (36 * r) + (6 * g) + b
+		end
+		local fg_256 = rgb_to_256(fg_r, fg_g, fg_b)
+		local bg_256 = rgb_to_256(bg_r, bg_g, bg_b)
+		colorized = string.format("\27[38;5;%dm\27[48;5;%dm%s\27[0m", fg_256, bg_256, self.value)
+	end
+	return String:new(colorized)
+end
+
+function String:build_border(widths, border_type, chars, columns)
+	local parts = { chars[border_type .. "_left"] or "" }
+	for i, key in ipairs(columns) do
+		if widths[key] then
+			table.insert(parts, string.rep(chars.horizontal, widths[key] + 2))
+			if i < #columns and widths[columns[i + 1]] then
+				table.insert(parts, chars[border_type == "middle" and "separator" or border_type .. "_t"])
+			end
+		end
+	end
+	table.insert(parts, chars[border_type .. "_right"] or "")
+	return table.concat(parts)
+end
+
+-- Color Module ----------------------------------------------------------------
+local Color = {}
+
+function Color.validate_hex(hex)
+	if not hex then
+		return false, "Hex color is required"
+	end
+	hex = hex:gsub("[\"']", ""):gsub("#", "")
+	if #hex == 3 then
+		hex = hex:gsub("(.)", "%1%1")
+	elseif #hex ~= 6 then
+		return false, "Invalid hex format: " .. hex .. ". Use #RRGGBB or #RGB"
+	end
+	if not hex:match("^[0-9A-Fa-f]+$") then
+		return false, "Invalid hex characters in " .. hex .. ". Use 0-9, A-F only"
+	end
+	return true, "#" .. hex:upper()
+end
+
+function Color.hex_to_rgb(hex)
+	local valid, normalized = Color.validate_hex(hex)
+	if not valid then
+		error(normalized)
+	end
+	hex = normalized:gsub("#", "")
+	return tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)
+end
+
+function Color.rgb_to_hsl(r, g, b)
+	r, g, b = r / 255, g / 255, b / 255
+	local max, min = math.max(r, g, b), math.min(r, g, b)
+	local h, s, l = 0, 0, (max + min) / 2
+
+	if max ~= min then
+		local d = max - min
+		s = l > 0.5 and d / (2 - max - min) or d / (max + min)
+		if max == r then
+			h = (g - b) / d + (g < b and 6 or 0)
+		elseif max == g then
+			h = (b - r) / d + 2
+		else
+			h = (r - g) / d + 4
+		end
+		h = h / 6
+	end
+	return h, s, l
+end
+
+function Color.hsl_to_rgb(h, s, l)
+	local r, g, b
+
+	local function hue2rgb(p, q, t)
+		if t < 0 then
+			t = t + 1
+		end
+		if t > 1 then
+			t = t - 1
+		end
+		if t < 1 / 6 then
+			return p + (q - p) * 6 * t
+		end
+		if t < 1 / 2 then
+			return q
+		end
+		if t < 2 / 3 then
+			return p + (q - p) * (2 / 3 - t) * 6
+		end
+		return p
+	end
+
+	if s == 0 then
+		r, g, b = l, l, l
+	else
+		local q = l < 0.5 and l * (1 + s) or l + s - l * s
+		local p = 2 * l - q
+		r = hue2rgb(p, q, h + 1 / 3)
+		g = hue2rgb(p, q, h)
+		b = hue2rgb(p, q, h - 1 / 3)
+	end
+
+	return Utils.round(r * 255), Utils.round(g * 255), Utils.round(b * 255)
+end
+
+function Color.rgb_to_hex(r, g, b)
+	return string.format(
+		"#%02X%02X%02X",
+		Utils.clamp(Utils.round(r), 0, 255),
+		Utils.clamp(Utils.round(g), 0, 255),
+		Utils.clamp(Utils.round(b), 0, 255)
+	)
+end
+
+function Color.hsl_to_string(h, s, l)
+	return string.format(
+		"H=%03.0f S=%02.0f%% L=%02.0f%%",
+		Utils.round(h * 360),
+		Utils.round(s * 100),
+		Utils.round(l * 100)
+	)
+end
+
+function Color.get_color_name(hex)
+	local r, g, b = Color.hex_to_rgb(hex)
+
+	for _, color in ipairs(Config.color_names) do
+		if hex:upper() == color.hex then
+			return color.name
+		end
+	end
+
+	local closest_name = "Custom"
+	local closest_distance = math.huge
+
+	for _, color in ipairs(Config.color_names) do
+		local nr, ng, nb = Color.hex_to_rgb(color.hex)
+		local distance = math.sqrt((r - nr) ^ 2 + (g - ng) ^ 2 + (b - nb) ^ 2)
+		if distance < closest_distance and distance <= color.threshold then
+			closest_distance = distance
+			closest_name = color.name
+		end
+	end
+
+	return closest_name
+end
+
+function Color.get_lightness_category(l)
+	if l < 0.4 then
+		return "dark"
+	elseif l <= 0.6 then
+		return "medium"
+	else
+		return "light"
+	end
+end
+
+function Color.get_contrast_text_color(r, g, b)
+	local function to_linear(c)
+		c = c / 255
+		return c <= 0.03928 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+	end
+
+	local luminance = 0.2126 * to_linear(r) + 0.7152 * to_linear(g) + 0.0722 * to_linear(b)
+	return luminance > 0.179 and { 0, 0, 0 } or { 255, 255, 255 }
+end
+
+function Color.calculate_contrast_ratio(hex1, hex2)
+	local function to_linear(c)
+		c = c / 255
+		return c <= 0.03928 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+	end
+
+	local r1, g1, b1 = Color.hex_to_rgb(hex1)
+	local r2, g2, b2 = Color.hex_to_rgb(hex2)
+
+	local l1 = 0.2126 * to_linear(r1) + 0.7152 * to_linear(g1) + 0.0722 * to_linear(b1)
+	local l2 = 0.2126 * to_linear(r2) + 0.7152 * to_linear(g2) + 0.0722 * to_linear(b2)
+
+	return (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05)
+end
+
+function Color.calculate_luminance(hex)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local function to_linear(c)
+		c = c / 255
+		return c <= 0.03928 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+	end
+	return Utils.round(0.2126 * to_linear(r) + 0.7152 * to_linear(g) + 0.0722 * to_linear(b), 3)
+end
+
+function Color.check_wcag_compliance(hex1, hex2)
+	local contrast = Color.calculate_contrast_ratio(hex1, hex2)
+	return {
+		aa_normal = contrast >= 4.5 and "Pass" or "Fail",
+		aa_large = contrast >= 3.0 and "Pass" or "Fail",
+		aaa_normal = contrast >= 7.0 and "Pass" or "Fail",
+		aaa_large = contrast >= 4.5 and "Pass" or "Fail",
+		contrast = contrast,
+	}
+end
+
+function Color.simulate_colorblind(hex, method)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local sim_r, sim_g, sim_b
+
+	if method == "protanopia" then
+		sim_r, sim_g, sim_b = 0.56667 * r + 0.43333 * g, 0.55833 * r + 0.44167 * g, b
+	elseif method == "deuteranopia" then
+		sim_r, sim_g, sim_b = 0.625 * r + 0.375 * g, 0.7 * r + 0.3 * g, b
+	elseif method == "tritanopia" then
+		sim_r, sim_g, sim_b = r, g, 0.95 * r + 0.05 * g
+	else
+		return hex
+	end
+
+	return Color.rgb_to_hex(Utils.clamp(sim_r, 0, 255), Utils.clamp(sim_g, 0, 255), Utils.clamp(sim_b, 0, 255))
+end
+
+function Color.evaluate_foreground_effectiveness(fg_color, background_colors)
+	local scores = { contrast = 0, luminance = 0, passing = 0 }
+
+	for _, bg in ipairs(background_colors) do
+		if bg.hex ~= fg_color.hex then
+			local contrast = Color.calculate_contrast_ratio(fg_color.hex, bg.hex)
+			local lum_diff = math.abs(Color.calculate_luminance(fg_color.hex) - Color.calculate_luminance(bg.hex))
+
+			scores.contrast = scores.contrast + contrast
+			scores.luminance = scores.luminance + lum_diff
+			if contrast >= Config.fg_bg_test.min_contrast then
+				scores.passing = scores.passing + 1
+			end
+		end
+	end
+
+	local count = #background_colors - 1
+	local weights = Config.fg_bg_test.score_weights
+
+	return {
+		hex = fg_color.hex,
+		name = fg_color.name,
+		overall = Utils.round(
+			(scores.contrast / count * weights.contrast)
+				+ (scores.luminance / count * weights.luminance)
+				+ (scores.passing / count * 100 * weights.versatility),
+			2
+		),
+		contrast = Utils.round(scores.contrast / count, 2),
+		luminance = Utils.round(scores.luminance / count, 2),
+		versatility = Utils.round(scores.passing / count * 100, 1),
+	}
+end
+
+function Color.generate_fg_bg_pairs(colors, options)
+	options = options or {}
+	local min_contrast = options.min_contrast or Config.fg_bg_test.min_contrast
+	local pairs = {}
+
+	for _, fg in ipairs(colors) do
+		for _, bg in ipairs(colors) do
+			if fg.hex ~= bg.hex then
+				local contrast = Color.calculate_contrast_ratio(fg.hex, bg.hex)
+				if contrast >= min_contrast then
+					table.insert(pairs, {
+						foreground = fg,
+						background = bg,
+						contrast = Utils.round(contrast, 2),
+						passed = true,
+					})
+				end
+			end
+		end
+	end
+
+	return pairs
+end
+
+-- Palette Module --------------------------------------------------------------
+local Palette = {}
+
+function Palette.generate_lightness(hex, count, verbose)
+	local verbose_output = {}
+	local r, g, b = Color.hex_to_rgb(hex)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+
+	if verbose then
+		table.insert(verbose_output, "[verbose] Algorithm: Lightness Variations")
+		table.insert(verbose_output, "[verbose] Input: " .. hex)
+		table.insert(verbose_output, "[verbose] HSL: " .. Color.hsl_to_string(h, s, l))
+	end
+
+	local step = Config.palette_methods.lightness.step
+	local k = math.floor((count - 1) / 2)
+	local colors = {}
+
+	for i = -k, k do
+		local delta = i * step
+		local l_new = Utils.clamp(l + delta, 0, 1)
+		local r2, g2, b2 = Color.hsl_to_rgb(h, s, l_new)
+		local hex2 = Color.rgb_to_hex(r2, g2, b2)
+
+		if verbose then
+			table.insert(verbose_output, string.format("[verbose] Step %d: L=%.3f -> %s", i, l_new, hex2))
+		end
+
+		table.insert(colors, {
+			hex = hex2,
+			r = r2,
+			g = g2,
+			b = b2,
+			h = h,
+			s = s,
+			l = l_new,
+			name = Color.get_color_name(hex2),
+			lightness = Color.get_lightness_category(l_new),
+			role = i == 0 and "primary" or (i == 1 or i == -1) and "secondary" or "accent",
+		})
+	end
+
+	if verbose and #verbose_output > 0 then
+		print(table.concat(verbose_output, "\n"))
+	end
+	return colors, "Lightness Variations"
+end
+
+function Palette.generate_saturation(hex, count, verbose)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+
+	local step = Config.palette_methods.saturation.step
+	local k = math.floor((count - 1) / 2)
+	local colors = {}
+
+	for i = -k, k do
+		local delta = i * step
+		local s_new = Utils.clamp(s + delta, 0, 1)
+		local r2, g2, b2 = Color.hsl_to_rgb(h, s_new, l)
+		local hex2 = Color.rgb_to_hex(r2, g2, b2)
+
+		table.insert(colors, {
+			hex = hex2,
+			r = r2,
+			g = g2,
+			b = b2,
+			h = h,
+			s = s_new,
+			l = l,
+			name = Color.get_color_name(hex2),
+			lightness = Color.get_lightness_category(l),
+			role = i == 0 and "primary" or (i == 1 or i == -1) and "secondary" or "accent",
+		})
+	end
+
+	return colors, "Saturation Variations"
+end
+
+function Palette.generate_hue(hex, count, verbose)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+	s = Config.palette_methods.hue.saturation -- Fixed saturation at 85%
+
+	local step = Config.palette_methods.hue.step / 360
+	local k = math.floor((count - 1) / 2)
+	local colors = {}
+
+	local hue_adjustments = { -60, -30, 0, 30, 60 }
+	for i = -k, k do
+		local delta = (hue_adjustments[i + k + 1] or (i * step * 360)) / 360
+		local h_new = (h + delta) % 1
+		if h_new < 0 then
+			h_new = h_new + 1
+		end
+		local r2, g2, b2 = Color.hsl_to_rgb(h_new, s, l)
+		local hex2 = Color.rgb_to_hex(r2, g2, b2)
+
+		table.insert(colors, {
+			hex = hex2,
+			r = r2,
+			g = g2,
+			b = b2,
+			h = h_new,
+			s = s,
+			l = l,
+			name = Color.get_color_name(hex2),
+			lightness = Color.get_lightness_category(l),
+			role = i == 0 and "primary" or (i == 1 or i == -1) and "secondary" or "accent",
+		})
+	end
+
+	return colors, "Hue Variations"
+end
+
+function Palette.generate_complementary(hex, count, verbose)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+	local colors = {}
+
+	table.insert(colors, {
+		hex = hex,
+		r = r,
+		g = g,
+		b = b,
+		h = h,
+		s = s,
+		l = l,
+		name = Color.get_color_name(hex),
+		lightness = Color.get_lightness_category(l),
+		role = "primary",
+	})
+
+	local h_comp = (h + 0.5) % 1
+	local r2, g2, b2 = Color.hsl_to_rgb(h_comp, s, l)
+	local hex2 = Color.rgb_to_hex(r2, g2, b2)
+
+	table.insert(colors, {
+		hex = hex2,
+		r = r2,
+		g = g2,
+		b = b2,
+		h = h_comp,
+		s = s,
+		l = l,
+		name = Color.get_color_name(hex2),
+		lightness = Color.get_lightness_category(l),
+		role = "complement",
+	})
+
+	while #colors < count do
+		local base_idx = (#colors % 2) + 1
+		local base_color = colors[base_idx]
+		local l_var = base_color.l + (0.2 * (#colors - 2))
+		l_var = Utils.clamp(l_var, 0, 1)
+
+		local r3, g3, b3 = Color.hsl_to_rgb(base_color.h, base_color.s, l_var)
+		local hex3 = Color.rgb_to_hex(r3, g3, b3)
+
+		table.insert(colors, {
+			hex = hex3,
+			r = r3,
+			g = g3,
+			b = b3,
+			h = base_color.h,
+			s = base_color.s,
+			l = l_var,
+			name = Color.get_color_name(hex3),
+			lightness = Color.get_lightness_category(l_var),
+			role = base_idx == 1 and "primary" or "complement",
+		})
+	end
+
+	return colors, "Complementary Colors"
+end
+
+function Palette.generate_triadic(hex, count, verbose)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+	local colors = {}
+	local base_colors = {}
+	local base_hues = { h, (h + 1 / 3) % 1, (h + 2 / 3) % 1 }
+
+	for i = 1, 3 do
+		local h_new = base_hues[i]
+		local r_new, g_new, b_new = Color.hsl_to_rgb(h_new, s, l)
+		local hex_new = Color.rgb_to_hex(r_new, g_new, b_new)
+		table.insert(base_colors, {
+			hex = hex_new,
+			r = r_new,
+			g = g_new,
+			b = b_new,
+			h = h_new,
+			s = s,
+			l = l,
+			name = Color.get_color_name(hex_new),
+			lightness = Color.get_lightness_category(l),
+			role = i == 1 and "primary" or (i == 2 and "secondary" or "accent"),
+		})
+	end
+
+	for i = 1, math.min(count, #base_colors) do
+		table.insert(colors, base_colors[i])
+	end
+
+	local variation_count = 1
+	while #colors < count do
+		local base_idx = ((#colors - 1) % 3) + 1
+		local base_color = base_colors[base_idx]
+		local l_delta = (variation_count % 2 == 1 and 1 or -1) * 0.15 * math.ceil(variation_count / 2)
+		local l_new = Utils.clamp(base_color.l + l_delta, 0, 1)
+		local r3, g3, b3 = Color.hsl_to_rgb(base_color.h, base_color.s, l_new)
+		local hex3 = Color.rgb_to_hex(r3, g3, b3)
+		local is_duplicate = false
+
+		for _, c in ipairs(colors) do
+			if c.hex == hex3 then
+				is_duplicate = true
+				break
+			end
+		end
+
+		if not is_duplicate then
+			table.insert(colors, {
+				hex = hex3,
+				r = r3,
+				g = g3,
+				b = b3,
+				h = base_color.h,
+				s = base_color.s,
+				l = l_new,
+				name = Color.get_color_name(hex3),
+				lightness = Color.get_lightness_category(l_new),
+				role = base_idx == 1 and "primary" or (base_idx == 2 and "secondary" or "accent"),
+			})
+		end
+		variation_count = variation_count + 1
+		if variation_count > 20 then
+			break
+		end
+	end
+
+	return colors, "Triadic Colors"
+end
+
+function Palette.generate_analogous(hex, count, verbose)
+	local r, g, b = Color.hex_to_rgb(hex)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+
+	local step = (Config.palette_methods.analogous.step or 25) / 360
+	local k = math.floor((count - 1) / 2)
+	local colors = {}
+
+	for i = -k, k do
+		local delta = i * step
+		local h_new = (h + delta)
+		if h_new < 0 then
+			h_new = h_new + 1
+		end
+		h_new = h_new % 1
+
+		local r2, g2, b2 = Color.hsl_to_rgb(h_new, s, l)
+		local hex2 = Color.rgb_to_hex(r2, g2, b2)
+
+		table.insert(colors, {
+			hex = hex2,
+			r = r2,
+			g = g2,
+			b = b2,
+			h = h_new,
+			s = s,
+			l = l,
+			name = Color.get_color_name(hex2),
+			lightness = Color.get_lightness_category(l),
+			role = i == 0 and "primary" or (i == 1 or i == -1) and "secondary" or "accent",
+		})
+	end
+
+	return colors, "Analogous Colors"
+end
+
+function Palette.generate_blend(hex1, hex2, count, verbose)
+	local verbose_output = {}
+	local r1, g1, b1 = Color.hex_to_rgb(hex1)
+	local r2, g2, b2 = Color.hex_to_rgb(hex2)
+
+	if verbose then
+		table.insert(verbose_output, "[verbose] Algorithm: Blended Colors")
+		table.insert(
+			verbose_output,
+			"[verbose] Input Color 1: " .. hex1 .. " (RGB: " .. r1 .. "," .. g1 .. "," .. b1 .. ")"
+		)
+		table.insert(
+			verbose_output,
+			"[verbose] Input Color 2: " .. hex2 .. " (RGB: " .. r2 .. "," .. g2 .. "," .. b2 .. ")"
+		)
+	end
+
+	local colors = {}
+	for i = 0, count - 1 do
+		local t = i / (count - 1)
+		local r = Utils.round(r1 + (r2 - r1) * t)
+		local g = Utils.round(g1 + (g2 - g1) * t)
+		local b = Utils.round(b1 + (b2 - b1) * t)
+		local hex = Color.rgb_to_hex(r, g, b)
+		local h, s, l = Color.rgb_to_hsl(r, g, b)
+
+		if verbose then
+			table.insert(
+				verbose_output,
+				string.format("[verbose] Step %d: t=%.3f, RGB=(%d,%d,%d), Hex=%s", i, t, r, g, b, hex)
+			)
+		end
+
+		table.insert(colors, {
+			hex = hex,
+			r = r,
+			g = g,
+			b = b,
+			h = h,
+			s = s,
+			l = l,
+			name = Color.get_color_name(hex),
+			lightness = Color.get_lightness_category(l),
+			role = i == 0 and "primary" or (i == count - 1 and "secondary" or "accent"),
+		})
+	end
+
+	if verbose and #verbose_output > 0 then
+		print(table.concat(verbose_output, "\n"))
+	end
+	return colors, "Blended Colors"
+end
+
+function Palette.generate_blended_palette(hex1, hex2, ratio, verbose)
+	local verbose_output = {}
+	local r1, g1, b1 = Color.hex_to_rgb(hex1)
+	local r2, g2, b2 = Color.hex_to_rgb(hex2)
+
+	if verbose then
+		table.insert(verbose_output, "[verbose] Algorithm: Blended Palette")
+		table.insert(
+			verbose_output,
+			"[verbose] Input Color 1: " .. hex1 .. " (RGB: " .. r1 .. "," .. g1 .. "," .. b1 .. ")"
+		)
+		table.insert(
+			verbose_output,
+			"[verbose] Input Color 2: " .. hex2 .. " (RGB: " .. r2 .. "," .. g2 .. "," .. b2 .. ")"
+		)
+		table.insert(verbose_output, "[verbose] Blend Ratio: " .. ratio)
+	end
+
+	local r = Utils.round(r1 + (r2 - r1) * ratio)
+	local g = Utils.round(g1 + (g2 - g1) * ratio)
+	local b = Utils.round(b1 + (b2 - b1) * ratio)
+	local hex = Color.rgb_to_hex(r, g, b)
+	local h, s, l = Color.rgb_to_hsl(r, g, b)
+
+	if verbose then
+		table.insert(
+			verbose_output,
+			string.format("[verbose] Blended: t=%.3f, RGB=(%d,%d,%d), Hex=%s", ratio, r, g, b, hex)
+		)
+	end
+
+	local colors = {
+		{
+			hex = hex,
+			r = r,
+			g = g,
+			b = b,
+			h = h,
+			s = s,
+			l = l,
+			name = Color.get_color_name(hex),
+			lightness = Color.get_lightness_category(l),
+			role = "primary",
+		},
+	}
+
+	if verbose and #verbose_output > 0 then
+		print(table.concat(verbose_output, "\n"))
+	end
+	return colors, "Blended Palette"
+end
+
+-- Display Module --------------------------------------------------------------
+local Display = {}
+
+function Display.calculate_column_widths(term_width, show_names, test_method, is_test_table, show_swatch)
+	local columns = is_test_table and { "hex" } or { "hex", "rgb", "hsl" }
+	if show_names and not is_test_table then
+		table.insert(columns, 4, "name")
+	end
+	if show_swatch and not is_test_table then
+		table.insert(columns, "swatch")
+	end
+
+	if is_test_table then
+		if test_method == "contrast" then
+			table.insert(columns, "contrast_white")
+			table.insert(columns, "contrast_black")
+		elseif test_method == "colorblind" then
+			table.insert(columns, "protanopia")
+			table.insert(columns, "deuteranopia")
+			table.insert(columns, "tritanopia")
+		elseif test_method == "wcag" then
+			table.insert(columns, "wcag_aa")
+			table.insert(columns, "wcag_aaa")
+		elseif test_method == "luminance" then
+			table.insert(columns, "luminance")
+		elseif test_method == "foreground" then
+			table.insert(columns, "fg_score")
+			table.insert(columns, "fg_contrast")
+			table.insert(columns, "fg_versatility")
+		end
+	end
+
+	local widths = {}
+	local total_min = #columns - 1
+	for _, col in ipairs(columns) do
+		widths[col] = Config.min_col_widths[col]
+		total_min = total_min + widths[col]
+	end
+
+	local extra = math.max(total_min, term_width) - total_min
+	local expandable = is_test_table
+			and {
+				"contrast_white",
+				"contrast_black",
+				"protanopia",
+				"deuteranopia",
+				"tritanopia",
+				"wcag_aa",
+				"wcag_aaa",
+				"luminance",
+				"fg_score",
+				"fg_contrast",
+				"fg_versatility",
+			}
+		or { "swatch", "name", "hsl" }
+
+	for _, col in ipairs(expandable) do
+		if widths[col] and extra > 0 then
+			local add = math.min(Config.max_col_widths[col] - widths[col], extra)
+			widths[col] = widths[col] + add
+			extra = extra - add
+		end
+	end
+
+	return widths, columns
+end
+
+function Display.palette_table(colors, palette_name, show_names, show_swatch)
+	local term_width = Utils.get_terminal_width()
+	local widths, columns = Display.calculate_column_widths(term_width, show_names, nil, false, show_swatch)
+	local output, s, bc = {}, String:new(), Config.border_chars
+
+	table.insert(output, s:build_border(widths, "top", bc, columns))
+	local header_text = " " .. palette_name
+	local total_inner_width = 0
+	for i, key in ipairs(columns) do
+		total_inner_width = total_inner_width + widths[key] + 2
+	end
+	total_inner_width = total_inner_width + (#columns - 1)
+	table.insert(output, bc.vertical .. tostring(String:new(header_text):pad_right(total_inner_width)) .. bc.vertical)
+	table.insert(output, s:build_border(widths, "middle", bc, columns))
+
+	local header_labels = {
+		hex = " Hex",
+		rgb = " RGB",
+		hsl = " HSL",
+		name = " Name",
+		swatch = " Swatch",
+	}
+	local header_row = {}
+	table.insert(header_row, bc.vertical)
+	for i, key in ipairs(columns) do
+		local padded_header = String:new(" " .. header_labels[key] .. " "):pad_right(widths[key] + 2)
+		table.insert(header_row, tostring(padded_header))
+		if i < #columns then
+			table.insert(header_row, bc.vertical)
+		end
+	end
+	table.insert(header_row, bc.vertical)
+	table.insert(output, table.concat(header_row))
+	table.insert(output, s:build_border(widths, "middle", bc, columns))
+
+	for _, color in ipairs(colors) do
+		local row_parts = {}
+		table.insert(row_parts, bc.vertical)
+
+		local hex_cell = String:new(" " .. color.hex .. " "):pad_right(widths.hex + 2)
+		table.insert(row_parts, tostring(hex_cell))
+		table.insert(row_parts, bc.vertical)
+
+		local rgb_text = string.format("%3d,%3d,%3d", color.r, color.g, color.b)
+		local rgb_cell = String:new(" " .. rgb_text .. " "):pad_right(widths.rgb + 2)
+		table.insert(row_parts, tostring(rgb_cell))
+		table.insert(row_parts, bc.vertical)
+
+		local hsl_text = Color.hsl_to_string(color.h, color.s, color.l)
+		local hsl_cell = String:new(" " .. hsl_text .. " "):pad_right(widths.hsl + 2)
+		table.insert(row_parts, tostring(hsl_cell))
+		table.insert(row_parts, bc.vertical)
+
+		if show_names and widths.name then
+			local name_cell = String:new(" " .. color.name .. " "):pad_right(widths.name + 2)
+			table.insert(row_parts, tostring(name_cell))
+			table.insert(row_parts, bc.vertical)
+		end
+
+		if show_swatch and widths.swatch then
+			local swatch_text = string.rep("█", widths.swatch)
+			local swatch = String:new(swatch_text)
+			if Utils.is_ansi_supported() then
+				local fg = Color.get_contrast_text_color(color.r, color.g, color.b)
+				swatch = String:new(swatch_text):colorize(fg[1], fg[2], fg[3], color.r, color.g, color.b)
+			end
+			local swatch_cell = " " .. tostring(swatch) .. " "
+			table.insert(row_parts, String:new(swatch_cell):pad_right(widths.swatch + 2))
+			table.insert(row_parts, bc.vertical)
+		end
+
+		table.insert(output, table.concat(row_parts))
+	end
+
+	table.insert(output, s:build_border(widths, "bottom", bc, columns))
+	Utils.clear_progress()
+	print(table.concat(output, "\n"))
+end
+
+function Display.test_table(colors, test_method)
+	local term_width = Utils.get_terminal_width()
+	local widths, columns = Display.calculate_column_widths(term_width, false, test_method, true, false)
+	local output, s, bc = {}, String:new(), Config.border_chars
+
+	local title = test_method == "contrast" and "Contrast Ratios"
+		or test_method == "colorblind" and "Colorblind Simulations"
+		or test_method == "wcag" and "WCAG Compliance"
+		or test_method == "luminance" and "Luminance Values"
+		or test_method == "foreground" and "Foreground Effectiveness"
+
+	table.insert(output, s:build_border(widths, "top", bc, columns))
+	local total_inner_width = 0
+	for i, key in ipairs(columns) do
+		total_inner_width = total_inner_width + widths[key] + 2
+	end
+	total_inner_width = total_inner_width + (#columns - 1)
+	table.insert(output, bc.vertical .. tostring(String:new(" " .. title):pad_right(total_inner_width)) .. bc.vertical)
+	table.insert(output, s:build_border(widths, "middle", bc, columns))
+
+	local header_labels = {
+		hex = " Hex",
+		contrast_white = " vs White",
+		contrast_black = " vs Black",
+		protanopia = " Protanopia",
+		deuteranopia = " Deuteranopia",
+		tritanopia = " Tritanopia",
+		wcag_aa = " WCAG AA",
+		wcag_aaa = " WCAG AAA",
+		luminance = " Luminance",
+		fg_score = " Score",
+		fg_contrast = " Contrast",
+		fg_versatility = " Versatility",
+	}
+	local header_row = {}
+	table.insert(header_row, bc.vertical)
+	for i, key in ipairs(columns) do
+		local padded_header = String:new(" " .. header_labels[key] .. " "):pad_right(widths[key] + 2)
+		table.insert(header_row, tostring(padded_header))
+		if i < #columns then
+			table.insert(header_row, bc.vertical)
+		end
+	end
+	table.insert(header_row, bc.vertical)
+	table.insert(output, table.concat(header_row))
+	table.insert(output, s:build_border(widths, "middle", bc, columns))
+
+	for _, color in ipairs(colors) do
+		local row_parts = {}
+		table.insert(row_parts, bc.vertical)
+
+		local hex_cell = String:new(" " .. color.hex .. " "):pad_right(widths.hex + 2)
+		table.insert(row_parts, tostring(hex_cell))
+		table.insert(row_parts, bc.vertical)
+
+		if test_method == "contrast" then
+			local function colorize_contrast(ratio)
+				local ratio_str = string.format(" %.2f", ratio)
+				if not Utils.is_ansi_supported() then
+					return ratio_str
+				end
+				local color_code
+				if ratio >= 7.0 then
+					color_code = "\27[32m" -- Green for AAA
+				elseif ratio >= 4.5 then
+					color_code = "\27[33m" -- Yellow for AA
+				else
+					color_code = "\27[31m" -- Red for Fail
+				end
+				return color_code .. ratio_str .. "\27[0m"
+			end
+
+			local cr_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+			local cr_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+			local white_cell = String:new(colorize_contrast(cr_white)):pad_right(widths.contrast_white + 2)
+			local black_cell = String:new(colorize_contrast(cr_black)):pad_right(widths.contrast_black + 2)
+			table.insert(row_parts, tostring(white_cell))
+			table.insert(row_parts, bc.vertical)
+			table.insert(row_parts, tostring(black_cell))
+			table.insert(row_parts, bc.vertical)
+		elseif test_method == "colorblind" then
+			local function create_colorblind_cell(hex, width)
+				local content = " " .. hex .. " "
+				local cell
+				if Utils.is_ansi_supported() then
+					local r, g, b = Color.hex_to_rgb(hex)
+					local fg = Color.get_contrast_text_color(r, g, b)
+					cell = String:new(content):colorize(fg[1], fg[2], fg[3], r, g, b)
+				else
+					cell = String:new(content)
+				end
+				return cell:pad_right(width + 2)
+			end
+
+			local prot_hex = Color.simulate_colorblind(color.hex, "protanopia")
+			local deut_hex = Color.simulate_colorblind(color.hex, "deuteranopia")
+			local trit_hex = Color.simulate_colorblind(color.hex, "tritanopia")
+
+			table.insert(row_parts, create_colorblind_cell(prot_hex, widths.protanopia))
+			table.insert(row_parts, bc.vertical)
+			table.insert(row_parts, create_colorblind_cell(deut_hex, widths.deuteranopia))
+			table.insert(row_parts, bc.vertical)
+			table.insert(row_parts, create_colorblind_cell(trit_hex, widths.tritanopia))
+			table.insert(row_parts, bc.vertical)
+		elseif test_method == "wcag" then
+			local function colorize_wcag_text(text)
+				if not Utils.is_ansi_supported() then
+					return text
+				end
+				return text:gsub("Pass", "\27[32mPass\27[0m"):gsub("Fail", "\27[31mFail\27[0m")
+			end
+
+			local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+			local aa_text = colorize_wcag_text(wcag_white.aa_normal .. "/" .. wcag_white.aa_large)
+			local aaa_text = colorize_wcag_text(wcag_white.aaa_normal .. "/" .. wcag_white.aaa_large)
+			local aa_cell = String:new(" " .. aa_text .. " "):pad_right(widths.wcag_aa + 2)
+			local aaa_cell = String:new(" " .. aaa_text .. " "):pad_right(widths.wcag_aaa + 2)
+			table.insert(row_parts, tostring(aa_cell))
+			table.insert(row_parts, bc.vertical)
+			table.insert(row_parts, tostring(aaa_cell))
+			table.insert(row_parts, bc.vertical)
+		elseif test_method == "luminance" then
+			local lum = Color.calculate_luminance(color.hex)
+			local lum_cell = String:new(string.format(" %.3f", lum)):pad_right(widths.luminance + 2)
+			table.insert(row_parts, tostring(lum_cell))
+			table.insert(row_parts, bc.vertical)
+		elseif test_method == "foreground" then
+			local score = Color.evaluate_foreground_effectiveness(color, colors)
+			local score_cell = String:new(" " .. score.overall):pad_right(widths.fg_score + 2)
+			local contrast_cell = String:new(" " .. score.contrast):pad_right(widths.fg_contrast + 2)
+			local versatility_cell = String:new(" " .. score.versatility .. "%"):pad_right(widths.fg_versatility + 2)
+			table.insert(row_parts, tostring(score_cell))
+			table.insert(row_parts, bc.vertical)
+			table.insert(row_parts, tostring(contrast_cell))
+			table.insert(row_parts, bc.vertical)
+			table.insert(row_parts, tostring(versatility_cell))
+			table.insert(row_parts, bc.vertical)
+		end
+
+		table.insert(output, table.concat(row_parts))
+	end
+
+	table.insert(output, s:build_border(widths, "bottom", bc, columns))
+	print(table.concat(output, "\n"))
+end
+
+function Display.show_foreground_matrix(colors)
+	local sample_text = Config.fg_bg_test.sample_text
+	local sample_width = Config.fg_bg_test.sample_width
+	local heatmap = Config.fg_bg_test.heatmap
+	local term_width = Utils.get_terminal_width()
+
+	local col_width = math.max(8, math.floor((term_width - 10) / (#colors + 1)))
+
+	local header = { "FG \\ BG" }
+	for _, bg in ipairs(colors) do
+		table.insert(header, String:new(bg.hex):pad_right(col_width))
+	end
+	print(table.concat(header, " | "))
+
+	for _, fg in ipairs(colors) do
+		local row = { String:new(fg.hex):pad_right(8) }
+		local fg_r, fg_g, fg_b = Color.hex_to_rgb(fg.hex)
+
+		for _, bg in ipairs(colors) do
+			local bg_r, bg_g, bg_b = Color.hex_to_rgb(bg.hex)
+			local contrast = Color.calculate_contrast_ratio(fg.hex, bg.hex)
+
+			local sample = String:new(sample_text):colorize(fg_r, fg_g, fg_b, bg_r, bg_g, bg_b):pad_right(sample_width)
+
+			local contrast_str = string.format("%.1f", contrast)
+			if Utils.is_ansi_supported() then
+				local heat_color
+				if contrast < heatmap.poor.threshold then
+					heat_color = heatmap.poor.color
+				elseif contrast < heatmap.fair.threshold then
+					heat_color = heatmap.fair.color
+				elseif contrast < heatmap.good.threshold then
+					heat_color = heatmap.good.color
+				else
+					heat_color = heatmap.excellent.color
+				end
+				contrast_str = string.format(
+					"\27[38;2;%d;%d;%dm%s\27[0m",
+					heat_color[1],
+					heat_color[2],
+					heat_color[3],
+					contrast_str
+				)
+			end
+
+			table.insert(row, String:new(sample .. " " .. contrast_str):pad_right(col_width))
+		end
+
+		print(table.concat(row, " | "))
+	end
+
+	print("\nLegend:")
+	print(string.format("• %s = Foreground sample on background", sample_text))
+	print("• Number = Contrast ratio (≥4.5 for WCAG AA)")
+	if Utils.is_ansi_supported() then
+		print(
+			"• Color coding: \27[38;2;255;0;0m<3.0\27[0m | \27[38;2;255;165;0m3.0-4.5\27[0m | \27[38;2;0;128;0m4.5-7.0\27[0m | \27[38;2;0;100;0m>7.0\27[0m"
+		)
+	end
+end
+
+function Display.show_foreground_scores(colors)
+	function Display.format_output(format, colors, palette_name, show_names, test_method, show_swatch, name_format)
+		local function get_variable_name(color, index)
+			if not name_format then
+				return string.format("$color-%d", index)
+			end
+			local name = color.name:lower():gsub("%s+", "-")
+			return name_format
+				:gsub("{index}", index)
+				:gsub("{name}", name)
+				:gsub("{hex}", color.hex:gsub("#", ""))
+				:gsub("{role}", color.role)
+				:gsub("{lightness}", color.lightness)
+				:gsub("[^%w-]", "-") -- Replace invalid characters with hyphens
+				:gsub("%-%-+", "-") -- Remove consecutive hyphens
+				:gsub("^-+", "") -- Remove leading hyphens
+				:gsub("-+$", "") -- Remove trailing hyphens
+		end
+
+		if format == "json" then
+			local json_data = { palette_name = palette_name, colors = {}, test_results = {} }
+			for _, color in ipairs(colors) do
+				local color_data = {
+					hex = color.hex,
+					rgb = { r = color.r, g = color.g, b = color.b },
+					hsl = {
+						h = Utils.round(color.h * 360),
+						s = Utils.round(color.s * 100),
+						l = Utils.round(color.l * 100),
+					},
+					name = color.name,
+					role = color.role,
+					lightness = color.lightness,
+				}
+				local test_data = { hex = color.hex }
+				if test_method == "contrast" then
+					test_data.contrast_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+					test_data.contrast_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+				elseif test_method == "colorblind" then
+					test_data.protanopia = Color.simulate_colorblind(color.hex, "protanopia")
+					test_data.deuteranopia = Color.simulate_colorblind(color.hex, "deuteranopia")
+					test_data.tritanopia = Color.simulate_colorblind(color.hex, "tritanopia")
+				elseif test_method == "wcag" then
+					local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+					local wcag_black = Color.check_wcag_compliance(color.hex, "#000000")
+					test_data.wcag_white = wcag_white
+					test_data.wcag_black = wcag_black
+				elseif test_method == "luminance" then
+					test_data.luminance = Color.calculate_luminance(color.hex)
+				elseif test_method == "foreground" then
+					local score = Color.evaluate_foreground_effectiveness(color, colors)
+					test_data.fg_score = score.overall
+					test_data.fg_contrast = score.contrast
+					test_data.fg_versatility = score.versatility
+				end
+				table.insert(json_data.colors, color_data)
+				if test_method then
+					table.insert(json_data.test_results, test_data)
+				end
+			end
+			local json_colors = {}
+			for _, color_data in ipairs(json_data.colors) do
+				local fields = {
+					string.format('"hex":"%s"', color_data.hex),
+					string.format('"rgb":{"r":%d,"g":%d,"b":%d}', color_data.rgb.r, color_data.rgb.g, color_data.rgb.b),
+					string.format('"hsl":{"h":%d,"s":%d,"l":%d}', color_data.hsl.h, color_data.hsl.s, color_data.hsl.l),
+					string.format('"name":"%s"', color_data.name:gsub('"', '\\"')),
+					string.format('"role":"%s"', color_data.role),
+					string.format('"lightness":"%s"', color_data.lightness),
+				}
+				table.insert(json_colors, "{" .. table.concat(fields, ",") .. "}")
+			end
+			local json_test = {}
+			if test_method then
+				for _, test_data in ipairs(json_data.test_results) do
+					local fields = { string.format('"hex":"%s"', test_data.hex) }
+					if test_method == "contrast" then
+						table.insert(fields, string.format('"contrast_white":%.2f', test_data.contrast_white))
+						table.insert(fields, string.format('"contrast_black":%.2f', test_data.contrast_black))
+					elseif test_method == "colorblind" then
+						table.insert(fields, string.format('"protanopia":"%s"', test_data.protanopia))
+						table.insert(fields, string.format('"deuteranopia":"%s"', test_data.deuteranopia))
+						table.insert(fields, string.format('"tritanopia":"%s"', test_data.tritanopia))
+					elseif test_method == "wcag" then
+						local wcag_fields = {
+							string.format(
+								'"wcag_white":{"aa_normal":"%s","aa_large":"%s","aaa_normal":"%s","aaa_large":"%s","contrast":%.2f}',
+								test_data.wcag_white.aa_normal,
+								test_data.wcag_white.aa_large,
+								test_data.wcag_white.aaa_normal,
+								test_data.wcag_white.aaa_large,
+								test_data.wcag_white.contrast
+							),
+							string.format(
+								'"wcag_black":{"aa_normal":"%s","aa_large":"%s","aaa_normal":"%s","aaa_large":"%s","contrast":%.2f}',
+								test_data.wcag_black.aa_normal,
+								test_data.wcag_black.aa_large,
+								test_data.wcag_black.aaa_normal,
+								test_data.wcag_black.aaa_large,
+								test_data.wcag_black.contrast
+							),
+						}
+						table.insert(fields, table.concat(wcag_fields, ","))
+					elseif test_method == "luminance" then
+						table.insert(fields, string.format('"luminance":%.3f', test_data.luminance))
+					elseif test_method == "foreground" then
+						table.insert(fields, string.format('"fg_score":%.2f', test_data.fg_score))
+						table.insert(fields, string.format('"fg_contrast":%.2f', test_data.fg_contrast))
+						table.insert(fields, string.format('"fg_versatility":%.1f', test_data.fg_versatility))
+					end
+					table.insert(json_test, "{" .. table.concat(fields, ",") .. "}")
+				end
+			end
+			local json_output = { string.format('"palette_name":"%s"', palette_name) }
+			table.insert(json_output, string.format('"colors":[%s]', table.concat(json_colors, ",")))
+			if test_method then
+				table.insert(json_output, string.format('"test_results":[%s]', table.concat(json_test, ",")))
+			end
+			Utils.clear_progress()
+			print("{" .. table.concat(json_output, ",") .. "}")
+		elseif format == "css" then
+			Utils.clear_progress()
+			print("/* " .. palette_name .. " */")
+			for i, color in ipairs(colors) do
+				local comment = color.name
+				if test_method == "contrast" then
+					local cr_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+					local cr_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+					comment = comment .. string.format(" | White: %.2f | Black: %.2f", cr_white, cr_black)
+				elseif test_method == "colorblind" then
+					local prot = Color.simulate_colorblind(color.hex, "protanopia")
+					local deut = Color.simulate_colorblind(color.hex, "deuteranopia")
+					local trit = Color.simulate_colorblind(color.hex, "tritanopia")
+					comment = comment .. string.format(" | Prot: %s | Deut: %s | Trit: %s", prot, deut, trit)
+				elseif test_method == "wcag" then
+					local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+					local wcag_black = Color.check_wcag_compliance(color.hex, "#000000")
+					comment = comment
+						.. string.format(
+							" | WCAG White: AA=%s/%s, AAA=%s/%s | Black: AA=%s/%s, AAA=%s/%s",
+							wcag_white.aa_normal,
+							wcag_white.aa_large,
+							wcag_white.aaa_normal,
+							wcag_white.aaa_large,
+							wcag_black.aa_normal,
+							wcag_black.aa_large,
+							wcag_black.aaa_normal,
+							wcag_black.aaa_large
+						)
+				elseif test_method == "luminance" then
+					local lum = Color.calculate_luminance(color.hex)
+					comment = comment .. string.format(" | Luminance: %.3f", lum)
+				elseif test_method == "foreground" then
+					local score = Color.evaluate_foreground_effectiveness(color, colors)
+					comment = comment
+						.. string.format(
+							" | Score: %.2f | Contrast: %.2f | Versatility: %.1f%%",
+							score.overall,
+							score.contrast,
+							score.versatility
+						)
+				end
+				print(string.format("  --color-%d: %s; /* %s */", i, color.hex, comment))
+			end
+		-- Replace the entire `scss` format block in Display.format_output
+		elseif format == "scss" then
+			Utils.clear_progress()
+			print("// " .. palette_name)
+			for i, color in ipairs(colors) do
+				local comment = color.name
+				if test_method == "contrast" then
+					local cr_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+					local cr_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+					comment = comment .. string.format(" | White: %.2f | Black: %.2f", cr_white, cr_black)
+				elseif test_method == "colorblind" then
+					local prot = Color.simulate_colorblind(color.hex, "protanopia")
+					local deut = Color.simulate_colorblind(color.hex, "deuteranopia")
+					local trit = Color.simulate_colorblind(color.hex, "tritanopia")
+					comment = comment .. string.format(" | Prot: %s | Deut: %s | Trit: %s", prot, deut, trit)
+				elseif test_method == "wcag" then
+					local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+					local wcag_black = Color.check_wcag_compliance(color.hex, "#000000")
+					comment = comment
+						.. string.format(
+							" | WCAG White: AA=%s/%s, AAA=%s/%s | Black: AA=%s/%s, AAA=%s/%s",
+							wcag_white.aa_normal,
+							wcag_white.aa_large,
+							wcag_white.aaa_normal,
+							wcag_white.aaa_large,
+							wcag_black.aa_normal,
+							wcag_black.aa_large,
+							wcag_black.aaa_normal,
+							wcag_black.aaa_large
+						)
+				elseif test_method == "luminance" then
+					local lum = Color.calculate_luminance(color.hex)
+					comment = comment .. string.format(" | Luminance: %.3f", lum)
+				elseif test_method == "foreground" then
+					local score = Color.evaluate_foreground_effectiveness(color, colors)
+					comment = comment
+						.. string.format(
+							" | Score: %.2f | Contrast: %.2f | Versatility: %.1f%%",
+							score.overall,
+							score.contrast,
+							score.versatility
+						)
+				end
+				local var_name = get_variable_name(color, i)
+				if var_name:sub(1, 1) ~= "$" then
+					var_name = "$" .. var_name
+				end
+				local hex_display = color.hex
+				if Utils.is_ansi_supported() then
+					local fg = Color.get_contrast_text_color(color.r, color.g, color.b)
+					hex_display = String:new(color.hex):colorize(fg[1], fg[2], fg[3], color.r, color.g, color.b).value
+				end
+				print(string.format("  %s: %s; // %s", var_name, hex_display, comment))
+			end
+		elseif test_method == "foreground" then
+			Utils.clear_progress()
+			print("\n=== FOREGROUND/BACKGROUND ANALYSIS ===\n")
+			Display.show_foreground_matrix(colors)
+			print("\n=== FOREGROUND EFFECTIVENESS SCORES ===\n")
+			Display.show_foreground_scores(colors)
+		else
+			Display.palette_table(colors, palette_name, show_names or format == "verbose", show_swatch)
+			if test_method then
+				print("\n") -- Separator between tables
+				Display.test_table(colors, test_method)
+			end
+		end
+		table.insert(scores, Color.evaluate_foreground_effectiveness(color, colors))
+	end
+
+	table.sort(scores, function(a, b)
+		return a.overall > b.overall
+	end)
+
+	local widths, columns =
+		Display.calculate_column_widths(Utils.get_terminal_width(), false, "foreground", true, false)
+	local output = {}
+	local s = String:new()
+	local bc = Config.border_chars
+
+	table.insert(output, s:build_border(widths, "top", bc, columns))
+
+	local header = { bc.vertical }
+	for _, col in ipairs(columns) do
+		local label = col:gsub("^fg_", ""):gsub("^%l", string.upper)
+		table.insert(header, String:new(" " .. label):pad_right(widths[col] + 2))
+		table.insert(header, bc.vertical)
+	end
+	table.insert(output, table.concat(header))
+	table.insert(output, s:build_border(widths, "middle", bc, columns))
+
+	for _, score in ipairs(scores) do
+		local row = { bc.vertical }
+		table.insert(row, String:new(" " .. score.hex):pad_right(widths.hex + 2))
+		table.insert(row, bc.vertical)
+		table.insert(row, String:new(" " .. score.overall):pad_right(widths.fg_score + 2))
+		table.insert(row, bc.vertical)
+		table.insert(row, String:new(" " .. score.contrast):pad_right(widths.fg_contrast + 2))
+		table.insert(row, bc.vertical)
+		table.insert(row, String:new(" " .. score.versatility .. "%"):pad_right(widths.fg_versatility + 2))
+		table.insert(row, bc.vertical)
+		table.insert(output, table.concat(row))
+	end
+
+	table.insert(output, s:build_border(widths, "bottom", bc, columns))
+
+	table.insert(output, "\nScoring Metrics:")
+	table.insert(output, "- Overall: Weighted score (0-100) of foreground effectiveness")
+	table.insert(output, "- Contrast: Average contrast ratio against all backgrounds")
+	table.insert(output, "- Versatility: % of backgrounds that pass WCAG AA contrast")
+
+	print(table.concat(output, "\n"))
+end
+
+function Display.format_output(format, colors, palette_name, show_names, test_method, show_swatch, name_format)
+	local function get_variable_name(color, index)
+		if not name_format then
+			return string.format("$color-%d", index)
+		end
+		local name = color.name:lower():gsub("%s+", "-")
+		return name_format
+			:gsub("{index}", index)
+			:gsub("{name}", name)
+			:gsub("{hex}", color.hex:gsub("#", ""))
+			:gsub("{role}", color.role)
+			:gsub("{lightness}", color.lightness)
+			:gsub("[^%w-]", "-") -- Replace invalid characters with hyphens
+			:gsub("%-%-+", "-") -- Remove consecutive hyphens
+			:gsub("^-+", "") -- Remove leading hyphens
+			:gsub("-+$", "") -- Remove trailing hyphens
+	end
+
+	if format == "json" then
+		local json_data = { palette_name = palette_name, colors = {}, test_results = {} }
+		for _, color in ipairs(colors) do
+			local color_data = {
+				hex = color.hex,
+				rgb = { r = color.r, g = color.g, b = color.b },
+				hsl = { h = Utils.round(color.h * 360), s = Utils.round(color.s * 100), l = Utils.round(color.l * 100) },
+				name = color.name,
+				role = color.role,
+				lightness = color.lightness,
+			}
+			local test_data = { hex = color.hex }
+			if test_method == "contrast" then
+				test_data.contrast_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+				test_data.contrast_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+			elseif test_method == "colorblind" then
+				test_data.protanopia = Color.simulate_colorblind(color.hex, "protanopia")
+				test_data.deuteranopia = Color.simulate_colorblind(color.hex, "deuteranopia")
+				test_data.tritanopia = Color.simulate_colorblind(color.hex, "tritanopia")
+			elseif test_method == "wcag" then
+				local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+				local wcag_black = Color.check_wcag_compliance(color.hex, "#000000")
+				test_data.wcag_white = wcag_white
+				test_data.wcag_black = wcag_black
+			elseif test_method == "luminance" then
+				test_data.luminance = Color.calculate_luminance(color.hex)
+			elseif test_method == "foreground" then
+				local score = Color.evaluate_foreground_effectiveness(color, colors)
+				test_data.fg_score = score.overall
+				test_data.fg_contrast = score.contrast
+				test_data.fg_versatility = score.versatility
+			end
+			table.insert(json_data.colors, color_data)
+			if test_method then
+				table.insert(json_data.test_results, test_data)
+			end
+		end
+		local json_colors = {}
+		for _, color_data in ipairs(json_data.colors) do
+			local fields = {
+				string.format('"hex":"%s"', color_data.hex),
+				string.format('"rgb":{"r":%d,"g":%d,"b":%d}', color_data.rgb.r, color_data.rgb.g, color_data.rgb.b),
+				string.format('"hsl":{"h":%d,"s":%d,"l":%d}', color_data.hsl.h, color_data.hsl.s, color_data.hsl.l),
+				string.format('"name":"%s"', color_data.name:gsub('"', '\\"')),
+				string.format('"role":"%s"', color_data.role),
+				string.format('"lightness":"%s"', color_data.lightness),
+			}
+			table.insert(json_colors, "{" .. table.concat(fields, ",") .. "}")
+		end
+		local json_test = {}
+		if test_method then
+			for _, test_data in ipairs(json_data.test_results) do
+				local fields = { string.format('"hex":"%s"', test_data.hex) }
+				if test_method == "contrast" then
+					table.insert(fields, string.format('"contrast_white":%.2f', test_data.contrast_white))
+					table.insert(fields, string.format('"contrast_black":%.2f', test_data.contrast_black))
+				elseif test_method == "colorblind" then
+					table.insert(fields, string.format('"protanopia":"%s"', test_data.protanopia))
+					table.insert(fields, string.format('"deuteranopia":"%s"', test_data.deuteranopia))
+					table.insert(fields, string.format('"tritanopia":"%s"', test_data.tritanopia))
+				elseif test_method == "wcag" then
+					local wcag_fields = {
+						string.format(
+							'"wcag_white":{"aa_normal":"%s","aa_large":"%s","aaa_normal":"%s","aaa_large":"%s","contrast":%.2f}',
+							test_data.wcag_white.aa_normal,
+							test_data.wcag_white.aa_large,
+							test_data.wcag_white.aaa_normal,
+							test_data.wcag_white.aaa_large,
+							test_data.wcag_white.contrast
+						),
+						string.format(
+							'"wcag_black":{"aa_normal":"%s","aa_large":"%s","aaa_normal":"%s","aaa_large":"%s","contrast":%.2f}',
+							test_data.wcag_black.aa_normal,
+							test_data.wcag_black.aa_large,
+							test_data.wcag_black.aaa_normal,
+							test_data.wcag_black.aaa_large,
+							test_data.wcag_black.contrast
+						),
+					}
+					table.insert(fields, table.concat(wcag_fields, ","))
+				elseif test_method == "luminance" then
+					table.insert(fields, string.format('"luminance":%.3f', test_data.luminance))
+				elseif test_method == "foreground" then
+					table.insert(fields, string.format('"fg_score":%.2f', test_data.fg_score))
+					table.insert(fields, string.format('"fg_contrast":%.2f', test_data.fg_contrast))
+					table.insert(fields, string.format('"fg_versatility":%.1f', test_data.fg_versatility))
+				end
+				table.insert(json_test, "{" .. table.concat(fields, ",") .. "}")
+			end
+		end
+		local json_output = { string.format('"palette_name":"%s"', palette_name) }
+		table.insert(json_output, string.format('"colors":[%s]', table.concat(json_colors, ",")))
+		if test_method then
+			table.insert(json_output, string.format('"test_results":[%s]', table.concat(json_test, ",")))
+		end
+		Utils.clear_progress()
+		print("{" .. table.concat(json_output, ",") .. "}")
+	elseif format == "css" then
+		Utils.clear_progress()
+		print("/* " .. palette_name .. " */")
+		for i, color in ipairs(colors) do
+			local comment = color.name
+			if test_method == "contrast" then
+				local cr_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+				local cr_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+				comment = comment .. string.format(" | White: %.2f | Black: %.2f", cr_white, cr_black)
+			elseif test_method == "colorblind" then
+				local prot = Color.simulate_colorblind(color.hex, "protanopia")
+				local deut = Color.simulate_colorblind(color.hex, "deuteranopia")
+				local trit = Color.simulate_colorblind(color.hex, "tritanopia")
+				comment = comment .. string.format(" | Prot: %s | Deut: %s | Trit: %s", prot, deut, trit)
+			elseif test_method == "wcag" then
+				local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+				local wcag_black = Color.check_wcag_compliance(color.hex, "#000000")
+				comment = comment
+					.. string.format(
+						" | WCAG White: AA=%s/%s, AAA=%s/%s | Black: AA=%s/%s, AAA=%s/%s",
+						wcag_white.aa_normal,
+						wcag_white.aa_large,
+						wcag_white.aaa_normal,
+						wcag_white.aaa_large,
+						wcag_black.aa_normal,
+						wcag_black.aa_large,
+						wcag_black.aaa_normal,
+						wcag_black.aaa_large
+					)
+			elseif test_method == "luminance" then
+				local lum = Color.calculate_luminance(color.hex)
+				comment = comment .. string.format(" | Luminance: %.3f", lum)
+			elseif test_method == "foreground" then
+				local score = Color.evaluate_foreground_effectiveness(color, colors)
+				comment = comment
+					.. string.format(
+						" | Score: %.2f | Contrast: %.2f | Versatility: %.1f%%",
+						score.overall,
+						score.contrast,
+						score.versatility
+					)
+			end
+			print(string.format("  --color-%d: %s; /* %s */", i, color.hex, comment))
+		end
+	-- Replace the `scss` format block in Display.format_output (around line 1450)
+	elseif format == "scss" then
+		Utils.clear_progress()
+		print("// " .. palette_name)
+		for i, color in ipairs(colors) do
+			local comment = color.name
+			if test_method == "contrast" then
+				local cr_white = Color.calculate_contrast_ratio(color.hex, "#FFFFFF")
+				local cr_black = Color.calculate_contrast_ratio(color.hex, "#000000")
+				comment = comment .. string.format(" | White: %.2f | Black: %.2f", cr_white, cr_black)
+			elseif test_method == "colorblind" then
+				local prot = Color.simulate_colorblind(color.hex, "protanopia")
+				local deut = Color.simulate_colorblind(color.hex, "deuteranopia")
+				local trit = Color.simulate_colorblind(color.hex, "tritanopia")
+				comment = comment .. string.format(" | Prot: %s | Deut: %s | Trit: %s", prot, deut, trit)
+			elseif test_method == "wcag" then
+				local wcag_white = Color.check_wcag_compliance(color.hex, "#FFFFFF")
+				local wcag_black = Color.check_wcag_compliance(color.hex, "#000000")
+				comment = comment
+					.. string.format(
+						" | WCAG White: AA=%s/%s, AAA=%s/%s | Black: AA=%s/%s, AAA=%s/%s",
+						wcag_white.aa_normal,
+						wcag_white.aa_large,
+						wcag_white.aaa_normal,
+						wcag_white.aaa_large,
+						wcag_black.aa_normal,
+						wcag_black.aa_large,
+						wcag_black.aaa_normal,
+						wcag_black.aaa_large
+					)
+			elseif test_method == "luminance" then
+				local lum = Color.calculate_luminance(color.hex)
+				comment = comment .. string.format(" | Luminance: %.3f", lum)
+			elseif test_method == "foreground" then
+				local score = Color.evaluate_foreground_effectiveness(color, colors)
+				comment = comment
+					.. string.format(
+						" | Score: %.2f | Contrast: %.2f | Versatility: %.1f%%",
+						score.overall,
+						score.contrast,
+						score.versatility
+					)
+			end
+			local var_name = get_variable_name(color, i)
+			if var_name:sub(1, 1) ~= "$" then
+				var_name = "$" .. var_name
+			end
+			local hex_display = color.hex
+			if Utils.is_ansi_supported() then
+				local fg = Color.get_contrast_text_color(color.r, color.g, color.b)
+				hex_display = String:new(color.hex):colorize(fg[1], fg[2], fg[3], color.r, color.g, color.b).value
+			end
+			print(string.format("  %s: %s; // %s", var_name, hex_display, comment))
+		end
+	end
+end
+
+-- Argument Parsing ------------------------------------------------------------
+local Args = {}
+
+function Args.parse(args)
+	local valid_algorithms = {
+		lightness = true,
+		saturation = true,
+		hue = true,
+		complementary = true,
+		triadic = true,
+		analogous = true,
+		blend = true,
+	}
+	local valid_test_methods = { contrast = true, colorblind = true, wcag = true, luminance = true, foreground = true }
+	local valid_formats = { table = true, json = true, css = true, scss = true, verbose = true }
+
+	local result = {
+		command = nil,
+		algorithm = "lightness",
+		hex = nil,
+		hex2 = nil,
+		count = 5,
+		verbose = false,
+		format = "table",
+		show_names = false,
+		test = nil,
+		show_swatch = true,
+		blend_ratio = nil,
+		blend_hex = nil,
+		min_contrast = Config.fg_bg_test.min_contrast,
+		name_format = nil,
+	}
+
+	local i = 1
+	local command_found = false
+	local args_to_process = {}
+
+	-- Collect arguments that might be hex colors
+	while i <= #args do
+		local arg = args[i]
+		if arg == "palette" or arg == "blend" then
+			if command_found then
+				error("Multiple commands specified. Use only one of 'palette' or 'blend'.")
+			end
+			result.command = arg
+			command_found = true
+			i = i + 1
+		elseif arg == "--algorithm" or arg == "--algo" then
+			i = i + 1
+			if not args[i] or not valid_algorithms[args[i]] then
+				error("Invalid or missing algorithm after --algorithm/--algo. Use --help for available algorithms.")
+			end
+			result.algorithm = args[i]
+			i = i + 1
+		elseif arg:match("^--algorithm=(.+)$") then
+			local method = arg:match("^--algorithm=(.+)$")
+			if not valid_algorithms[method] then
+				error("Invalid algorithm: " .. method .. ". Use --help for available algorithms.")
+			end
+			result.algorithm = method
+			i = i + 1
+		elseif arg:match("^--count=(%d+)$") then
+			local count = tonumber(arg:match("^--count=(%d+)$"))
+			if count < 1 or count > 20 then
+				error("Count must be between 1 and 20.")
+			end
+			result.count = count
+			i = i + 1
+		elseif arg == "--count" then
+			i = i + 1
+			if not args[i] or not args[i]:match("^%d+$") then
+				error("Invalid or missing count value after --count. Use a number between 1 and 20.")
+			end
+			local count = tonumber(args[i])
+			if count < 1 or count > 20 then
+				error("Count must be between 1 and 20.")
+			end
+			result.count = count
+			i = i + 1
+		elseif arg == "--verbose" then
+			result.verbose = true
+			i = i + 1
+		elseif arg == "--format" then
+			i = i + 1
+			if not args[i] or not valid_formats[args[i]] then
+				error("Invalid or missing format after --format. Use --help for available formats.")
+			end
+			result.format = args[i]
+			i = i + 1
+		elseif arg:match("^--format=(.+)$") then
+			local fmt = arg:match("^--format=(.+)$")
+			if not valid_formats[fmt] then
+				error("Invalid format: " .. fmt .. ". Use --help for available formats.")
+			end
+			result.format = fmt
+			i = i + 1
+		elseif arg == "--no-names" then
+			result.show_names = false
+			i = i + 1
+		elseif arg == "--names" then
+			result.show_names = true
+			i = i + 1
+		elseif arg == "--test" then
+			i = i + 1
+			if not args[i] or not valid_test_methods[args[i]] then
+				error("Invalid or missing test method after --test. Use --help for available test methods.")
+			end
+			result.test = args[i]
+			i = i + 1
+		elseif arg:match("^--test=(.+)$") then
+			local test = arg:match("^--test=(.+)$")
+			if not valid_test_methods[test] then
+				error("Invalid test method: " .. test .. ". Use --help for available test methods.")
+			end
+			result.test = test
+			i = i + 1
+		elseif arg == "--no-swatch" then
+			result.show_swatch = false
+			i = i + 1
+		elseif arg == "--blend-ratio" then
+			i = i + 1
+			if not args[i] or not args[i]:match("^%d*%.?%d+$") then
+				error("Invalid or missing blend ratio after --blend-ratio. Use a number between 0 and 1.")
+			end
+			local ratio = tonumber(args[i])
+			if ratio < 0 or ratio > 1 then
+				error("Blend ratio must be between 0 and 1.")
+			end
+			result.blend_ratio = ratio
+			i = i + 1
+		elseif arg:match("^--blend-ratio=(%d*%.?%d+)$") then
+			local ratio = tonumber(arg:match("^--blend-ratio=(%d*%.?%d+)$"))
+			if ratio < 0 or ratio > 1 then
+				error("Blend ratio must be between 0 and 1.")
+			end
+			result.blend_ratio = ratio
+			i = i + 1
+		elseif arg == "--min-contrast" then
+			i = i + 1
+			if not args[i] or not args[i]:match("^%d*%.?%d+$") then
+				error("Invalid or missing contrast ratio after --min-contrast. Use a number.")
+			end
+			result.min_contrast = tonumber(args[i])
+			i = i + 1
+		elseif arg:match("^--min-contrast=(%d*%.?%d+)$") then
+			result.min_contrast = tonumber(arg:match("^--min-contrast=(%d*%.?%d+)$"))
+			i = i + 1
+		elseif arg == "--name-format" then
+			i = i + 1
+			if not args[i] then
+				error("Missing value after --name-format.")
+			end
+			result.name_format = args[i]
+			i = i + 1
+		elseif arg:match("^--name-format=(.+)$") then
+			result.name_format = arg:match("^--name-format=(.+)$")
+			i = i + 1
+		elseif arg == "--help" then
+			result.command = "help"
+			i = i + 1
+		else
+			-- Collect non-option arguments (potential hex colors)
+			table.insert(args_to_process, arg)
+			i = i + 1
+		end
+	end
+
+	-- Process collected arguments as hex colors
+	if result.command == "palette" then
+		if #args_to_process == 0 then
+			error("Palette command requires a hex color (e.g., '#RRGGBB').")
+		end
+		local hex_arg = args_to_process[1]:gsub("[\"']", "") -- Remove quotes if present
+		local valid, normalized = Color.validate_hex(hex_arg)
+		if not valid then
+			error(normalized)
+		end
+		if #args_to_process > 1 then
+			local second_arg = args_to_process[2]:gsub("[\"']", "")
+			if Color.validate_hex(second_arg) then
+				error("Palette command accepts only one hex color.")
+			end
+		end
+		result.hex = normalized
+	elseif result.command == "blend" then
+		if #args_to_process < 2 then
+			error("Blend command requires two hex colors (e.g., '#RRGGBB #RRGGBB').")
+		elseif #args_to_process > 2 then
+			error("Blend command accepts only two hex colors.")
+		end
+		local valid1, normalized1 = Color.validate_hex(args_to_process[1])
+		local valid2, normalized2 = Color.validate_hex(args_to_process[2])
+		if not valid1 then
+			error(normalized1)
+		end
+		if not valid2 then
+			error(normalized2)
+		end
+		result.hex = normalized1
+		result.hex2 = normalized2
+		if not result.blend_ratio then
+			result.blend_ratio = 0.5 -- Default blend ratio
+		end
+	elseif result.command == nil and #args_to_process > 0 then
+		-- Assume 'palette' if no command is specified but hex color is provided
+		if #args_to_process > 1 then
+			error("Only one hex color is allowed when no command is specified.")
+		end
+		local valid, normalized = Color.validate_hex(args_to_process[1])
+		if not valid then
+			error(normalized)
+		end
+		result.command = "palette"
+		result.hex = normalized
+	end
+
+	if result.command == nil then
+		result.command = "help"
+	end
+
+	return result
+end
+
+-- Main Execution --------------------------------------------------------------
+local function show_help()
+	print([[
+Enhanced Color Tool (cpie) v2.1
+Generate and analyze color palettes with advanced features.
+
+Usage:
+  cpie palette <hex> [options]        Generate a color palette from a single hex color
+  cpie blend <hex1> <hex2> [options]  Blend two colors
+  cpie --help                         Show this help message
+
+Options:
+  --algorithm=<method>, --algo=<method>  Palette generation method (default: lightness)
+                                        Available: lightness, saturation, hue, complementary, triadic, analogous, blend
+  --count=<n>                           Number of colors to generate (1-20, default: 5)
+  --verbose                             Enable verbose output
+  --format=<type>                       Output format: table, json, css, scss, verbose (default: table)
+  --names                               Show color names in table output
+  --no-names                            Hide color names in table output (default)
+  --test=<method>                       Perform color analysis: contrast, colorblind, wcag, luminance, foreground
+  --no-swatch                           Disable color swatches in table output
+  --blend-ratio=<n>                     Blend ratio for blend command (0-1, default: 0.5)
+  --min-contrast=<n>                    Minimum contrast ratio for fg/bg pairs (default: 4.5)
+  --name-format=<pattern>               Custom variable name format for CSS/SCSS (e.g., "color-{name}-{index}")
+
+Examples:
+  cpie palette '#B5B1A4' --algorithm=analogous --count=5 --format=scss
+  cpie palette '#FF0000' --test=wcag --names
+  cpie blend '#FF0000' '#0000FF' --blend-ratio=0.3 --format=json
+  cpie '#B5B1A4' --count=3 --format=css --name-format="color-{name}-{index}"
+
+Note: Hex colors should be quoted if they include '#' (e.g., '#FF0000') to avoid shell issues.
+]])
+	os.exit(0)
+end
+
+local function main()
+	local args = Args.parse(arg)
+	if args.command == "help" then
+		show_help()
+	end
+
+	local colors, palette_name
+
+	if args.command == "palette" then
+		Utils.update_progress("Generating palette for " .. args.hex .. "...")
+		if args.algorithm == "lightness" then
+			colors, palette_name = Palette.generate_lightness(args.hex, args.count, args.verbose)
+		elseif args.algorithm == "saturation" then
+			colors, palette_name = Palette.generate_saturation(args.hex, args.count, args.verbose)
+		elseif args.algorithm == "hue" then
+			colors, palette_name = Palette.generate_hue(args.hex, args.count, args.verbose)
+		elseif args.algorithm == "complementary" then
+			colors, palette_name = Palette.generate_complementary(args.hex, args.count, args.verbose)
+		elseif args.algorithm == "triadic" then
+			colors, palette_name = Palette.generate_triadic(args.hex, args.count, args.verbose)
+		elseif args.algorithm == "analogous" then
+			colors, palette_name = Palette.generate_analogous(args.hex, args.count, args.verbose)
+		else
+			error("Unsupported algorithm: " .. args.algorithm)
+		end
+	elseif args.command == "blend" then
+		Utils.update_progress("Blending colors " .. args.hex .. " and " .. args.hex2 .. "...")
+		if args.count > 1 then
+			colors, palette_name = Palette.generate_blend(args.hex, args.hex2, args.count, args.verbose)
+		else
+			colors, palette_name = Palette.generate_blended_palette(args.hex, args.hex2, args.blend_ratio, args.verbose)
+		end
+	end
+
+	Display.format_output(
+		args.format,
+		colors,
+		palette_name,
+		args.show_names,
+		args.test,
+		args.show_swatch,
+		args.name_format
+	)
+end
+
+main()

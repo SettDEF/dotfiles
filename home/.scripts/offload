@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+# nuke-share — move home folders to the UGREEN/Samsung 9100 enclosure
+# and replace them with symlinks. Allowlist-only, dry-run by default.
+#
+#   nuke-share status
+#   nuke-share list
+#   nuke-share link   <folder> [--go]
+#   nuke-share unlink <folder> [--go]
+#
+# Without --go, link/unlink prints what would happen and exits.
+set -euo pipefail
+
+MOUNT=/mnt/nuke9100
+DEST_ROOT="$MOUNT/usr/moood"
+HOME_DIR="${HOME%/}"
+ALLOWLIST=( Downloads )      # extend later
+MIN_FREE_BUFFER_GB=5
+
+# Skip ANSI codes when stdout is not a TTY so callers (QML, scripts) get
+# clean text without needing to strip escape sequences.
+if [ -t 1 ]; then
+    c_red()  { printf '\033[31m%s\033[0m' "$*"; }
+    c_grn()  { printf '\033[32m%s\033[0m' "$*"; }
+    c_ylw()  { printf '\033[33m%s\033[0m' "$*"; }
+    c_dim()  { printf '\033[2m%s\033[0m' "$*"; }
+else
+    c_red()  { printf '%s' "$*"; }
+    c_grn()  { printf '%s' "$*"; }
+    c_ylw()  { printf '%s' "$*"; }
+    c_dim()  { printf '%s' "$*"; }
+fi
+die()    { echo "$(c_red error:) $*" >&2; exit 1; }
+
+require_mount() {
+    findmnt -n "$MOUNT" >/dev/null 2>&1 \
+        || die "$MOUNT is not mounted. Run: offload wake (or sudo mount $MOUNT)"
+}
+
+# Bring the enclosure online (PCIe rescan) and mount it.
+cmd_wake() {
+    if findmnt -n "$MOUNT" >/dev/null 2>&1; then
+        echo "already mounted at $MOUNT"
+        return 0
+    fi
+    sudo /usr/local/sbin/nuke9100-bus.sh enable || die "could not bring enclosure online"
+    sudo mount "$MOUNT" || die "mount failed"
+    echo "$(c_grn online + mounted.)"
+}
+
+# Unmount and park the enclosure at the PCIe level.
+cmd_park() {
+    sudo /usr/local/sbin/nuke9100-bus.sh disable
+    echo "$(c_grn parked.)"
+}
+
+is_allowed() {
+    local f="$1"
+    for a in "${ALLOWLIST[@]}"; do [[ "$f" == "$a" ]] && return 0; done
+    return 1
+}
+
+state_of() {
+    # prints: missing | local | linked | linked-broken | foreign-link
+    local p="$HOME_DIR/$1"
+    if   [[ ! -e "$p" && ! -L "$p" ]]; then echo missing
+    elif [[ -L "$p" ]]; then
+        local tgt; tgt="$(readlink -f "$p" || true)"
+        if [[ -z "$tgt" || ! -d "$tgt" ]]; then echo linked-broken
+        elif [[ "$tgt" == "$DEST_ROOT/$1" ]]; then echo linked
+        else echo foreign-link
+        fi
+    elif [[ -d "$p" ]]; then echo local
+    else echo other
+    fi
+}
+
+human_size() {
+    local p="$1"
+    [[ -e "$p" ]] || { echo "-"; return; }
+    /usr/bin/du -sh "$p" 2>/dev/null | awk '{print $1}'
+}
+
+cmd_list() {
+    echo "Allowed folders:"
+    for f in "${ALLOWLIST[@]}"; do echo "  - $f"; done
+}
+
+cmd_status() {
+    printf '%-12s %-8s %-14s %s\n' FOLDER SIZE STATE TARGET
+    for f in "${ALLOWLIST[@]}"; do
+        local s state tgt
+        s="$(human_size "$HOME_DIR/$f")"
+        state="$(state_of "$f")"
+        if [[ -L "$HOME_DIR/$f" ]]; then tgt="$(readlink "$HOME_DIR/$f")"
+        else tgt=""; fi
+        printf '%-12s %-8s %-14s %s\n' "$f" "$s" "$state" "$tgt"
+    done
+    if findmnt -n "$MOUNT" >/dev/null 2>&1; then
+        echo
+        echo "Mount: $(c_grn mounted)  $(df -h --output=avail "$MOUNT" 2>/dev/null | tail -1 | xargs) free"
+    else
+        echo
+        echo "Mount: $(c_red unmounted)"
+    fi
+}
+
+free_gb() { df -B1G --output=avail "$MOUNT" 2>/dev/null | tail -1 | tr -d ' '; }
+size_gb() { /usr/bin/du -sB1G "$1" 2>/dev/null | awk '{print $1}'; }
+
+check_open_files() {
+    # returns 1 (failure) if anything has the source open
+    local p="$1"
+    if command -v lsof >/dev/null 2>&1; then
+        if lsof +D "$p" >/dev/null 2>&1; then
+            echo "$(c_red 'open files detected') in $p — close them first:"
+            lsof +D "$p" 2>/dev/null | head -10 >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+cmd_link() {
+    local f="$1"; local go="${2:-}"
+    is_allowed "$f"      || die "'$f' not in allowlist"
+    require_mount
+    local src="$HOME_DIR/$f"
+    local dst="$DEST_ROOT/$f"
+    local state; state="$(state_of "$f")"
+
+    case "$state" in
+        linked)         echo "already linked: $src → $dst"; return 0 ;;
+        linked-broken)  die  "broken symlink at $src — fix manually" ;;
+        foreign-link)   die  "$src is a symlink pointing somewhere unexpected: $(readlink "$src")" ;;
+        missing)        die  "$src does not exist" ;;
+        local)          ;;
+        *)              die  "$src is not a regular directory" ;;
+    esac
+
+    local sz fr need
+    sz="$(size_gb "$src")"
+    fr="$(free_gb)"
+    need=$(( sz + MIN_FREE_BUFFER_GB ))
+    (( fr >= need )) || die "not enough free space on $MOUNT (need ${need}G, have ${fr}G)"
+
+    local merge_note=""
+    if [[ -d "$dst" ]]; then
+        local dst_sz; dst_sz="$(human_size "$dst")"
+        merge_note="MERGE into existing $dst (${dst_sz})"
+    fi
+
+    echo "PLAN:"
+    [[ -n "$merge_note" ]] && echo "  $(c_ylw "$merge_note")"
+    echo "  rsync -aHAX --info=progress2 \"$src/\" \"$dst/\"   # merge, no --delete"
+    echo "  verify (rsync -anc) — every source file must exist on dst"
+    echo "  rm -rf  \"$src\""
+    echo "  ln -s   \"$dst\" \"$src\""
+    echo
+    echo "size: ${sz}G   destination free after: ~$((fr - sz))G"
+    echo
+
+    if [[ "$go" != "--go" ]]; then
+        echo "$(c_ylw 'dry-run.') re-run with --go to execute."
+        return 0
+    fi
+
+    check_open_files "$src" || die "abort"
+
+    mkdir -p "$DEST_ROOT" "$dst"
+
+    echo "→ rsync (merge) …"
+    rsync -aHAX --info=progress2 "$src/" "$dst/"
+
+    echo "→ verifying every source file landed on dst …"
+    if ! rsync -anc "$src/" "$dst/" | grep -q .; then
+        : # empty diff = good
+    else
+        die "verification mismatch — source NOT removed. Inspect $dst manually."
+    fi
+
+    echo "→ removing source $src"
+    rm -rf -- "$src"
+
+    echo "→ creating symlink $src → $dst"
+    ln -s "$dst" "$src"
+
+    echo "$(c_grn done.) $src now points to $dst"
+}
+
+cmd_unlink() {
+    local f="$1"; local go="${2:-}"
+    is_allowed "$f" || die "'$f' not in allowlist"
+    local src="$HOME_DIR/$f"
+    local state; state="$(state_of "$f")"
+
+    [[ "$state" == linked ]] || die "$src is not in linked state (state: $state)"
+    require_mount
+
+    local dst="$DEST_ROOT/$f"
+    local sz; sz="$(size_gb "$dst")"
+    local home_dev_free
+    home_dev_free="$(df -B1G --output=avail "$HOME_DIR" 2>/dev/null | tail -1 | tr -d ' ')"
+
+    echo "PLAN:"
+    echo "  rm   \"$src\"                # remove symlink"
+    echo "  rsync -aHAX \"$dst/\" \"$src/\"  # copy data back"
+    echo "  rm -rf \"$dst\"               # then drop the external copy"
+    echo
+    echo "size: ${sz}G   home free after: $((home_dev_free - sz))G"
+    (( home_dev_free >= sz + MIN_FREE_BUFFER_GB )) \
+        || die "not enough free space on /home (need $((sz + MIN_FREE_BUFFER_GB))G, have ${home_dev_free}G)"
+    echo
+
+    if [[ "$go" != "--go" ]]; then
+        echo "$(c_ylw 'dry-run.') re-run with --go to execute."
+        return 0
+    fi
+
+    check_open_files "$dst" || die "abort"
+
+    rm -- "$src"
+    mkdir -p "$src"
+    rsync -aHAX --info=progress2 "$dst/" "$src/"
+
+    if ! rsync -anc "$dst/" "$src/" | grep -q .; then
+        :
+    else
+        die "verification mismatch — external copy at $dst NOT removed. Inspect manually."
+    fi
+
+    rm -rf -- "$dst"
+    echo "$(c_grn done.) $src is local again."
+}
+
+usage() {
+    cat <<EOF
+offload — move home folders to $MOUNT and manage the enclosure.
+
+  offload status
+  offload list
+  offload wake                       enable + mount the enclosure
+  offload park                       unmount + park the enclosure (PCIe remove)
+  offload link   <folder> [--go]
+  offload unlink <folder> [--go]
+
+Allowlist: ${ALLOWLIST[*]}
+EOF
+}
+
+case "${1:-}" in
+    status) cmd_status ;;
+    list)   cmd_list   ;;
+    wake|enable|on)  cmd_wake ;;
+    park|disable|off) cmd_park ;;
+    link)   shift; [[ $# -ge 1 ]] || die "usage: link <folder> [--go]"; cmd_link   "$1" "${2:-}" ;;
+    unlink) shift; [[ $# -ge 1 ]] || die "usage: unlink <folder> [--go]"; cmd_unlink "$1" "${2:-}" ;;
+    -h|--help|help|"") usage ;;
+    *)      die "unknown subcommand: $1" ;;
+esac

@@ -1,0 +1,31 @@
+{
+    "cards": {
+    },
+    "confirmKill": true,
+    "findingsCritOnly": false,
+    "graphFill": "solid",
+    "graphGrid": true,
+    "graphLine": "smooth",
+    "graphNowDot": true,
+    "graphScale": "linear",
+    "graphSmooth": 3,
+    "graphWidth": 1.8,
+    "history": 80,
+    "interval": 1.5,
+    "lastPage": "overview",
+    "powerHours": 1,
+    "powerSeries": [
+        "bat",
+        "bat_w",
+        "pkg_w"
+    ],
+    "procColumns": {
+    },
+    "procLimit": 60,
+    "procView": "list",
+    "sidebarCollapsed": false,
+    "startPage": "overview",
+    "threadNumbers": true,
+    "windowHeight": 900,
+    "windowWidth": 1908
+}

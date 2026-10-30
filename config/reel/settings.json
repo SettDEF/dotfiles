@@ -1,0 +1,109 @@
+{
+    "accent": "theme",
+    "chatAnimate": true,
+    "chatDense": true,
+    "chatFloatH": 220,
+    "chatFloatW": 519,
+    "chatFloatX": 1401,
+    "chatFloatY": 547,
+    "chatHideBots": true,
+    "chatHighlight": "",
+    "chatMute": "",
+    "chatNames": "twitch",
+    "chatOverlay": false,
+    "chatPinned": false,
+    "chatScale": 1,
+    "chatSide": "left",
+    "chatStamps": false,
+    "chatStripes": true,
+    "chatWidth": 340,
+    "clickToPause": true,
+    "controlStyle": "scrim",
+    "defaultSpeed": 1,
+    "disabledViewers": [
+    ],
+    "endAction": "next",
+    "engine": "auto",
+    "extSettings": {
+    },
+    "favourites": [
+        {
+            "at": 1793324058822,
+            "kind": "link",
+            "rating": 0,
+            "title": "veev.to",
+            "url": "https://veev.to/e/x88a73cy1phj?autoplay=0"
+        }
+    ],
+    "filledPlay": true,
+    "fit": "fit",
+    "glassBar": false,
+    "hideAfterMs": 2600,
+    "history": true,
+    "keys": {
+    },
+    "liveStyle": "minimal",
+    "loop": true,
+    "osd": true,
+    "osdPosition": "top",
+    "panelStyle": "solid",
+    "pdfAutoEnd": "stop",
+    "pdfAutoSpeed": 265,
+    "pdfAutoStart": false,
+    "pdfAutoYield": true,
+    "playlistSide": "right",
+    "playlistThumbs": true,
+    "queue": [
+    ],
+    "queueAutoplay": true,
+    "queuePlayed": [
+    ],
+    "queueRepeat": false,
+    "resume": true,
+    "screenshotCopy": true,
+    "screenshotDir": "~/Pictures/Screenshots/reel",
+    "screenshotFormat": "png",
+    "seekLong": 60,
+    "seekPreview": true,
+    "seekShort": 10,
+    "seriesMemory": {
+        "/mnt/storage/dev/projects/reskate-anim": {
+            "intro": 22783
+        }
+    },
+    "showFolderButtons": true,
+    "showFrameButtons": true,
+    "showLoopButton": true,
+    "showScreenshotButton": true,
+    "showSpeedButton": true,
+    "showTitle": true,
+    "startFullscreen": false,
+    "subtitlesOn": false,
+    "timeDisplay": "elapsed",
+    "titleBar": "system",
+    "tvEnabled": true,
+    "tvEpg": "https://epgshare01.online/epgshare01/epg_ripper_DE1.xml.gz",
+    "tvFavourites": [
+    ],
+    "tvGroup": "",
+    "tvPlaylists": [
+        {
+            "name": "Germany (iptv-org)",
+            "url": "https://iptv-org.github.io/iptv/countries/de.m3u"
+        },
+        {
+            "enabled": true,
+            "name": "German TV (josxha)",
+            "type": "m3u",
+            "url": "https://raw.githubusercontent.com/josxha/german-tv-m3u/main/german-tv.m3u"
+        }
+    ],
+    "tvView": "guide",
+    "tvZoom": 153.8461538461538,
+    "videoFill": true,
+    "vodEnabled": true,
+    "volumeStep": 5,
+    "webBridge": "http://127.0.0.1:8788",
+    "webEnabled": true,
+    "windowButtons": "dots"
+}

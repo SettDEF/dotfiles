@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# AUTHOR: gotbletu (@gmail|twitter|youtube|github|lbry)
+
+helpmsg() {
+  printf "%s\n" "desc: append video filename to include [duration,filesize,resolution,compression]"
+  printf "%s\n" "depend: ffmpeg coreutils file sed grep gawk"
+  printf "\n"
+  printf "%s\n" "usage: ${0##*/} [file]"
+  printf "\n"
+  printf "%s\n" "  $ ${0##*/} file.mp4"
+  printf "%s\n" "  $ ${0##*/} file1.mp4 file2.mp4 file3.mp4"
+  printf "%s\n" "  $ ${0##*/} *.mp4"
+}
+if [ $# -lt 1 ]; then
+  helpmsg
+  exit 1
+elif [ "$1" = -h ] || [ "$1" = --help ]; then
+  helpmsg
+  exit 0
+else
+  myArray=("$@")
+  for arg in "${myArray[@]}"; do
+    # check if file is a valid video before continuing
+    get_mimetype=$(file --mime-type -b "$arg" | cut -d '/' -f1)
+    if [ "$get_mimetype"  = "video" ]; then
+      compression=$(ffmpeg -i "$arg" 2>&1 | grep Video: | cut -d ':' -f4 | cut -d ' ' -f2)
+      duration=$(ffmpeg -i "$arg" 2>&1 | grep Duration | cut -d ' ' -f 4 | sed s/,// | cut -d '.' -f1 | awk -F: '{print $1"h"$2"m"$3"s"}')
+      filesize=$(du -h "$arg" | awk '{print $1}')
+      resolution=$(ffprobe -v error -of flat=s=_ -select_streams v:0 -show_entries stream=height "$arg" | cut -d '=' -f2)
+      mv "$arg" "${arg%.*} [${duration},${filesize},${resolution}p,${compression}].${arg##*.}"
+    fi
+  done
+fi

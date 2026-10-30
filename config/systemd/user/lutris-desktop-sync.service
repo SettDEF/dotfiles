@@ -1,0 +1,6 @@
+[Unit]
+Description=Sync Lutris games to .desktop launchers
+
+[Service]
+Type=oneshot
+ExecStart=/home/caesar/.scripts/desktop-sync --prune

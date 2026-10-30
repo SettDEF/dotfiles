@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# sitevars - find the colour variables a website really uses, for theming it.
+#
+# Written while building the tinct Stylus style (~/.config/tinct/templates/
+# firefox/theme.user.css), after doing this by hand for ~20 sites and getting
+# bitten each way it can go wrong:
+#   - Guessed variable names from memory were often stale (Discord renamed its
+#     whole set in 2025; claude.ai moved to a "--cds-*" system).
+#   - The FORMAT matters as much as the name: claude.ai's --bg-000 is bare HSL
+#     numbers ("0 0% 6%") used as hsl(var(--x)), so a hex value there makes the
+#     colour invalid and the override silently does nothing.
+#   - Cloudflare-fronted sites (claude.ai, chatgpt.com, perplexity, reddit) answer
+#     curl with a challenge page. Their stylesheets live on a separate asset host
+#     that is NOT blocked, and the browser cache already knows those URLs - so
+#     the fallback reads stylesheet URLs out of the Zen/Firefox disk cache index
+#     and downloads them fresh (the cached bodies are brotli-compressed).
+#
+# Writes nothing outside a temp dir (removed on exit) unless --keep DIR is given.
+
+# No -e: nearly every step is a grep that may rightly match nothing (a blocked
+# page has no <link> tags), and -e turned each of those into a silent exit.
+# Real failures are reported explicitly (die, the "almost nothing" note).
+set -uo pipefail
+
+UA="Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+STYLE="${TINCT_STYLE:-$HOME/.config/tinct/templates/firefox/theme.user.css}"
+TOP=40
+
+usage() {
+    cat <<'EOF'
+Usage: sitevars [options] <url-or-domain> [more urls...]
+
+Downloads a site's stylesheets and reports the CSS colour variables it uses:
+which selectors define them (themes, dark mode), the most-used ones, and each
+one's value FORMAT (hex / rgb / hsl-numbers / var-ref) - the format decides
+what you may override it with.
+
+Options:
+  --check          verify every variable in this site's @-moz-document section
+                   of the tinct style exists in the downloaded CSS
+                   (style: $TINCT_STYLE or ~/.config/tinct/templates/firefox/theme.user.css)
+  --cache-only     skip the page download, use only browser-cache stylesheet URLs
+  --grep REGEX     only report variables matching REGEX (default: colour-ish names)
+  --top N          how many variables to list (default 40)
+  --keep DIR       keep the downloaded CSS in DIR (as <host>.css)
+  -h, --help       this help
+
+Examples:
+  sitevars claude.ai --check
+  sitevars https://duckduckgo.com/?q=test
+  sitevars chatgpt.com --grep 'surface|text|border'
+
+Needs: curl, grep, awk. Cache fallback reads ~/.cache/zen/*/cache2 and
+~/.cache/mozilla/firefox/*/cache2 - visit the site in the browser once so its
+stylesheets are cached.
+EOF
+}
+
+die() { echo "sitevars: $*" >&2; exit 1; }
+
+CHECK=0 CACHE_ONLY=0 KEEP="" FILTER='bg|background|surface|text|fg|foreground|border|stroke|divider|primary|secondary|accent|brand|link|color|colour|fill|icon|muted|neutral|gray|grey|page|base|layer|elevat|input|card|sidebar|overlay|scrim'
+URLS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --check) CHECK=1 ;;
+        --cache-only) CACHE_ONLY=1 ;;
+        --grep) [ $# -ge 2 ] || die "--grep needs a regex"; FILTER="$2"; shift ;;
+        --top) [ $# -ge 2 ] || die "--top needs a number"; TOP="$2"; shift ;;
+        --keep) [ $# -ge 2 ] || die "--keep needs a directory"; KEEP="$2"; shift ;;
+        -*) die "unknown option $1 (see --help)" ;;
+        *) URLS+=("$1") ;;
+    esac
+    shift
+done
+[ ${#URLS[@]} -gt 0 ] || { usage >&2; exit 1; }
+for b in curl grep awk; do command -v "$b" >/dev/null || die "$b is not installed"; done
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# Stylesheet URLs the browser has cached whose URL or page mentions $1.
+cache_css_urls() {
+    local key="$1" dir
+    for dir in "$HOME"/.cache/zen/*/cache2/entries "$HOME"/.cache/mozilla/firefox/*/cache2/entries; do
+        [ -d "$dir" ] || continue
+        grep -l -a -- "$key" "$dir"/* 2>/dev/null | while read -r f; do
+            # The cache key (":https://...") is stored as plain text after the body.
+            strings "$f" | grep -m1 -oE ':https?://[^ ]+\.css(\?[^ ]*)?' | cut -c2-
+        done
+    # Local URLs are our own userstyles, which mention every site by name.
+    done | grep -vE '^https?://(localhost|127\.0\.0\.1)[:/]' | sort -u
+}
+
+# download_links LISTFILE BASE DIR OUT - append each listed stylesheet to OUT,
+# resolving relative hrefs against the page.
+download_links() {
+    local list="$1" base="$2" dir="$3" out="$4" h u
+    while read -r h; do
+        [ -n "$h" ] || continue
+        case "$h" in http*) u="$h" ;; //*) u="https:$h" ;; /*) u="$base$h" ;; ./*) u="$dir${h#./}" ;; *) u="$dir$h" ;; esac
+        curl -sL --compressed -A "$UA" --max-time 25 "$u" >> "$out" || true
+        printf '\n' >> "$out"
+    done < "$list"
+}
+
+fetch_site() {
+    local arg="$1" url host base dir out links n
+    case "$arg" in http*) url="$arg" ;; *) url="https://$arg/" ;; esac
+    host=$(echo "$url" | awk -F/ '{print $3}')
+    base="https://$host"
+    dir=$(echo "$url" | sed -E 's#\?.*##; s#[^/]*$##')
+    out="$TMP/$host.css"; links="$TMP/$host.links"
+    : > "$out"; : > "$links"
+
+    if [ "$CACHE_ONLY" -eq 0 ]; then
+        curl -sL -A "$UA" -H "Accept: text/html" -H "Accept-Language: en-US,en;q=0.9" \
+            --max-time 25 "$url" -o "$TMP/$host.html" || true
+        if [ -s "$TMP/$host.html" ]; then
+            { grep -oE '<link[^>]+>' "$TMP/$host.html" | grep -i stylesheet | grep -oE 'href="[^"]+"' | cut -d'"' -f2 || true
+              grep -oE '"[^" ]+\.css(\?[^"]*)?"' "$TMP/$host.html" | tr -d '"'
+            } | sed 's/&amp;/\&/g' | sort -u > "$links"
+            # Inline <style> blocks count too.
+            tr '\n' ' ' < "$TMP/$host.html" | grep -oE '<style[^>]*>[^<]*' >> "$out" || true
+        fi
+    fi
+
+    # Fetch what the page links, then judge: a blocked page links nothing, and a
+    # logged-out shell (chatgpt.com) links a stub while the real app CSS loads
+    # from JS. Either way, add what the browser cached for this site - Firefox
+    # keys cache entries by the top-level site, so a CDN sheet still matches.
+    download_links "$links" "$base" "$dir" "$out"
+    n=$(wc -l < "$links")
+    if [ "$(wc -c < "$out")" -lt 200000 ]; then
+        # The site's own name: the label before the TLD ("chat.mistral.ai" ->
+        # "mistral"). The FIRST label made chat.mistral.ai, chat.deepseek.com
+        # and chat.qwen.ai all search for "chat" and get the same wrong file.
+        local key; key=$(printf '%s' "${host#www.}" | awk -F. '{print (NF >= 2) ? $(NF-1) : $1}')
+        # A short name ("x") matches every cache file; use the whole host then.
+        [ ${#key} -ge 4 ] || key="${host#www.}"
+        cache_css_urls "$key" | grep -vxF -f "$links" > "$TMP/$host.cached" || true
+        echo "  page gave $n stylesheets ($(wc -c < "$out") bytes); adding $(wc -l < "$TMP/$host.cached") from the browser cache for \"$key\"" >&2
+        download_links "$TMP/$host.cached" "$base" "$dir" "$out"
+        n=$((n + $(wc -l < "$TMP/$host.cached")))
+    fi
+
+    local bytes; bytes=$(wc -c < "$out")
+    echo "== $host: $n stylesheets, $bytes bytes of CSS"
+    [ "$bytes" -gt 1000 ] || { echo "  (almost nothing - blocked? open the site in the browser once, then rerun)"; return; }
+    [ -z "$KEEP" ] || { mkdir -p "$KEEP"; cp -f -- "$out" "$KEEP/$host.css"; echo "  kept: $KEEP/$host.css"; }
+
+    report "$out"
+    [ "$CHECK" -eq 0 ] || check_section "$host" "$out"
+}
+
+# Classify a declared value: what you may override the variable with.
+fmt_of() {
+    case "$1" in
+        \#*) echo hex ;;
+        rgb*|rgba*) echo rgb ;;
+        hsl\(*|hsla\(*) echo hsl ;;
+        var\(*) echo "ref" ;;
+        color-mix*|oklch*|lab*|lch*) echo "css-fn" ;;
+        *)
+            if echo "$1" | grep -qE '^-?[0-9.]+(deg)?[ ,]+[0-9.]+%[ ,]+[0-9.]+%'; then echo "HSL-NUMBERS"
+            elif echo "$1" | grep -qE '^[0-9]{1,3}[ ,]+[0-9]{1,3}[ ,]+[0-9]{1,3}$'; then echo "RGB-NUMBERS"
+            else echo "other"; fi ;;
+    esac
+}
+
+report() {
+    local css="$1"
+    echo "  -- selectors that define colour variables (themes / modes):"
+    tr '}' '\n' < "$css" | grep -E -- "--[a-zA-Z0-9_-]*(${FILTER})[a-zA-Z0-9_-]*:" \
+        | sed -E 's/\{.*//; s/^[[:space:]]+//' | grep -E 'theme|dark|light|mode|:root|html|prefers-color' \
+        | cut -c1-110 | sort | uniq -c | sort -rn | head -8 | sed 's/^/    /'
+    echo "  -- most-used variables (uses, format, sample value):"
+    grep -oE 'var\(--[a-zA-Z0-9_-]+' "$css" | sed 's/var(//' | grep -iE -- "$FILTER" \
+        | grep -vE -- '-(size|width|height|radius|font|shadow|space|spacing|gap|duration|ease|z-index|line-height|weight)' \
+        | sort | uniq -c | sort -rn | head -"$TOP" | while read -r cnt name; do
+            val=$(grep -oE -- "${name}:[^;}]+" "$css" | head -1 | cut -d: -f2- | sed 's/^ *//' | cut -c1-38)
+            printf '    %5s  %-12s %-44s %s\n' "$cnt" "$(fmt_of "$val")" "$name" "$val"
+        done
+    echo "  (HSL-NUMBERS / RGB-NUMBERS: override with bare numbers, not a hex; ref: follow it)"
+}
+
+# Every variable set in the style's section for this host must exist on the site.
+check_section() {
+    local host="$1" css="$2" bare="${1#www.}" section="" vars missing=0 total=0
+    [ -r "$STYLE" ] || { echo "  check: no style at $STYLE"; return; }
+    # en.wikipedia.org is styled as domain("wikipedia.org"): drop labels until one matches.
+    while [ -n "$bare" ]; do
+        section=$(awk -v h="\"$bare\"" -v u="//$bare" 'index($0,"@-moz-document") && (index($0,h) || index($0,u)) {f=1} f; f && /^}/ {f=0}' "$STYLE")
+        [ -n "$section" ] && break
+        case "$bare" in *.*.*) bare="${bare#*.}" ;; *) bare="" ;; esac
+    done
+    [ -n "$section" ] || { echo "  check: the style has no section for ${host#www.}"; return; }
+    vars=$(echo "$section" | grep -oE -- '--[a-zA-Z0-9_-]+:' | sed 's/:$//' | grep -vE '^--m3h?-' | sort -u)
+    [ -n "$vars" ] || { echo "  check: the $bare section sets no site variables (element rules only)"; return; }
+    for v in $vars; do
+        total=$((total + 1))
+        # Defined OR referenced counts: some sites (Twitch) set values from JS,
+        # and overriding a variable the CSS reads works either way.
+        grep -q -- "$v:" "$css" || grep -qF -- "var($v" "$css" \
+            || { echo "    MISSING on site: $v"; missing=$((missing + 1)); }
+    done
+    echo "  check: $((total - missing))/$total variables in the style's $bare section exist on the site"
+}
+
+for u in "${URLS[@]}"; do fetch_site "$u"; done

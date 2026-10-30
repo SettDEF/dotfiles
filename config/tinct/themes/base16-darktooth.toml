@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Darktooth"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#1d2021"
+grey2 = "#32302f"
+grey3 = "#504945"
+grey4 = "#665c54"
+grey5 = "#928374"
+grey6 = "#a89984"
+yellow1 = "#d5c4a1"
+yellow2 = "#fdf4c1"
+red1 = "#fb543f"
+orange1 = "#fe8625"
+yellow3 = "#fac03b"
+green1 = "#95c085"
+grey7 = "#8ba59b"
+cyan1 = "#0d6678"
+purple1 = "#8f4673"
+orange2 = "#a87322"
+
+[roles]
+background = "#1d2021"
+foreground = "#fdf4c1"
+primary = "#fb543f"

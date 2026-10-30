@@ -1,0 +1,175 @@
+#!/bin/bash
+
+# Arch Linux Installation Script for All gotbletu's fzf Tools
+# Installs fzf, xclip, tmux, git, greenclip, surfraw, ranger, fasd, and gotbletu's
+# fzf-nova, fzf-snippet, fzf-speed, fzf_clipboard_greenclip, fzf_surfraw, ranger_fasd_fzf
+# into $HOME/.scripts without any shell configuration or additional setup.
+
+# Configuration
+SCRIPTS_DIR="/home/$SUDO_USER/.scripts" # User scripts directory
+TIME_STAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="/var/log/fzf_all_tools_install_$TIME_STAMP.log"
+USERNAME="$SUDO_USER" # Get the username of the sudo-calling user
+SHOWNOTES_URL="https://github.com/pareronia/gotbletu-shownotes.git"
+
+# Tools to install via pacman
+PACMAN_TOOLS=(
+    "fzf"              # Fuzzy finder
+    "xclip"            # Clipboard support
+    "tmux"             # Terminal multiplexer for popups
+    "git"              # For cloning repositories
+    "surfraw"          # Web search for fzf_surfraw
+    "ranger"           # File manager for ranger_fasd_fzf
+)
+
+# Tools to install via paru (AUR)
+AUR_TOOLS=(
+    "greenclip"        # Clipboard manager for fzf_clipboard_greenclip
+    "fasd"             # Quick navigation for ranger_fasd_fzf
+)
+
+# Logging function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "This script must be run as root (use sudo)"
+        exit 1
+    fi
+}
+
+# Prompt for user confirmation
+confirm() {
+    local prompt="$1"
+    read -p "$prompt (y/N): " choice
+    [[ "$choice" =~ ^[Yy]$ ]]
+}
+
+# Ensure directory is writable
+check_writable() {
+    local dir="$1"
+    if [[ ! -w "$dir" ]]; then
+        log "Error: Directory $dir is not writable"
+        exit 1
+    fi
+}
+
+# Install pacman tools
+install_pacman_tools() {
+    log "Installing pacman tools"
+    
+    for tool in "${PACMAN_TOOLS[@]}"; do
+        pacman -S --noconfirm "$tool" && log "Installed $tool" || log "Failed to install $tool"
+    done
+    
+    log "Pacman tools installation completed"
+}
+
+# Install AUR tools with paru
+install_aur_tools() {
+    log "Installing AUR tools with paru"
+    
+    if ! command -v paru &> /dev/null; then
+        log "Error: paru is not installed. Please install paru to proceed."
+        exit 1
+    fi
+    
+    for tool in "${AUR_TOOLS[@]}"; do
+        su - "$USERNAME" -c "paru -S --noconfirm $tool" && log "Installed $tool" || log "Failed to install $tool"
+    done
+    
+    log "AUR tools installation completed"
+}
+
+# Install gotbletu's fzf tools
+install_gotbletu_tools() {
+    log "Installing gotbletu's fzf tools to $SCRIPTS_DIR"
+    
+    # Clone repository
+    temp_dir=$(mktemp -d)
+    cd "$temp_dir" || { log "Failed to change to temp directory"; exit 1; }
+    git clone "$SHOWNOTES_URL" || { log "Failed to clone shownotes repository"; exit 1; }
+    
+    # Copy main scripts to $SCRIPTS_DIR
+    mkdir -p "$SCRIPTS_DIR"
+    cp gotbletu-shownotes/fzf-nova.sh "$SCRIPTS_DIR/" || { log "Failed to copy fzf-nova.sh"; exit 1; }
+    cp gotbletu-shownotes/fzf-snippet.sh "$SCRIPTS_DIR/" || { log "Failed to copy fzf-snippet.sh"; exit 1; }
+    cp gotbletu-shownotes/fzf-speed.sh "$SCRIPTS_DIR/" || { log "Failed to copy fzf-speed.sh"; exit 1; }
+    
+    # Create fzf_clipboard_greenclip.sh
+    cat << 'EOF' > "$SCRIPTS_DIR/fzf_clipboard_greenclip.sh"
+#!/bin/bash
+# fzf_clipboard_greenclip: Fuzzy find clipboard history with greenclip
+greenclip print | fzf -e -i | xclip -selection clipboard
+EOF
+    
+    # Create fzf_surfraw.sh
+    cat << 'EOF' > "$SCRIPTS_DIR/fzf_surfraw.sh"
+#!/bin/bash
+# fzf_surfraw: Fuzzy find surfraw bookmarks
+cat ~/.config/surfraw/bookmarks | fzf -e -i | xargs surfraw
+EOF
+    
+    # Create ranger_fasd_fzf.sh
+    cat << 'EOF' > "$SCRIPTS_DIR/ranger_fasd_fzf.sh"
+#!/bin/bash
+# ranger_fasd_fzf: Fuzzy find files/directories with ranger and fasd
+fasd -l | fzf -e -i | xargs ranger
+EOF
+    
+    # Make scripts executable
+    chmod +x "$SCRIPTS_DIR/fzf-nova.sh" || { log "Failed to make fzf-nova.sh executable"; exit 1; }
+    chmod +x "$SCRIPTS_DIR/fzf-snippet.sh" || { log "Failed to make fzf-snippet.sh executable"; exit 1; }
+    chmod +x "$SCRIPTS_DIR/fzf-speed.sh" || { log "Failed to make fzf-speed.sh executable"; exit 1; }
+    chmod +x "$SCRIPTS_DIR/fzf_clipboard_greenclip.sh" || { log "Failed to make fzf_clipboard_greenclip.sh executable"; exit 1; }
+    chmod +x "$SCRIPTS_DIR/fzf_surfraw.sh" || { log "Failed to make fzf_surfraw.sh executable"; exit 1; }
+    chmod +x "$SCRIPTS_DIR/ranger_fasd_fzf.sh" || { log "Failed to make ranger_fasd_fzf.sh executable"; exit 1; }
+    
+    # Set ownership
+    chown -R "$USERNAME:$USERNAME" "$SCRIPTS_DIR"
+    
+    # Clean up
+    cd / || { log "Failed to return to root directory"; exit 1; }
+    rm -rf "$temp_dir"
+    
+    log "gotbletu's fzf tools installed to $SCRIPTS_DIR"
+}
+
+# Main function
+main() {
+    check_root
+    
+    # Create log directory
+    mkdir -p "$(dirname "$LOG_FILE")" || { echo "Error: Cannot create log directory $(dirname "$LOG_FILE")"; exit 1; }
+    check_writable "$(dirname "$LOG_FILE")"
+    
+    log "Starting installation of all gotbletu's fzf tools"
+    
+    # System update
+    if confirm "Update system before proceeding?"; then
+        pacman -Syu --noconfirm || { log "Failed to update system"; exit 1; }
+        log "System updated"
+    fi
+    
+    # Install pacman tools
+    if confirm "Install pacman tools (fzf, xclip, tmux, git, surfraw, ranger)?"; then
+        install_pacman_tools
+    fi
+    
+    # Install AUR tools
+    if confirm "Install AUR tools (greenclip, fasd) with paru?"; then
+        install_aur_tools
+    fi
+    
+    # Install gotbletu's fzf tools
+    if confirm "Install gotbletu's fzf tools (fzf-nova, fzf-snippet, fzf-speed, fzf_clipboard_greenclip, fzf_surfraw, ranger_fasd_fzf) to $SCRIPTS_DIR?"; then
+        install_gotbletu_tools
+    fi
+    
+    log "Installation of all gotbletu's fzf tools completed"
+}
+
+main

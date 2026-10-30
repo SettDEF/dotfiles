@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Classic Light"
+dark = false
+derived = true
+
+[colors]
+grey1 = "#f5f5f5"
+grey2 = "#e0e0e0"
+grey3 = "#d0d0d0"
+grey4 = "#b0b0b0"
+grey5 = "#505050"
+grey6 = "#303030"
+grey7 = "#202020"
+grey8 = "#151515"
+red1 = "#ac4142"
+orange1 = "#d28445"
+orange2 = "#f4bf75"
+green1 = "#90a959"
+cyan1 = "#75b5aa"
+cyan2 = "#6a9fb5"
+purple1 = "#aa759f"
+orange3 = "#8f5536"
+
+[roles]
+background = "#f5f5f5"
+foreground = "#151515"
+primary = "#ac4142"

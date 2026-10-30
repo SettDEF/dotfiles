@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Woodland"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#231e18"
+grey2 = "#302b25"
+grey3 = "#48413a"
+yellow1 = "#9d8b70"
+grey4 = "#b4a490"
+grey5 = "#cabcb1"
+grey6 = "#d7c8bc"
+grey7 = "#e4d4c8"
+red1 = "#d35c5c"
+orange1 = "#ca7f32"
+yellow2 = "#e0ac16"
+yellow3 = "#b7ba53"
+green1 = "#6eb958"
+blue1 = "#88a4d3"
+purple1 = "#bb90e2"
+orange2 = "#b49368"
+
+[roles]
+background = "#231e18"
+foreground = "#e4d4c8"
+primary = "#e0ac16"

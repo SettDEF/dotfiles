@@ -1,0 +1,112 @@
+# ~/.config/function/env — ordinary environment variables.
+#
+# WHAT THIS IS FOR
+# ----------------
+# The one home for NON-SECRET environment variables. Before this file they were inlined at the
+# bottom of ~/.zshrc, mixed in among conda's generated block, gcloud's completion includes and the
+# Nix installer's line — so a variable you set by hand sat between three blocks that other programs
+# rewrite without asking. Anything appended by a tool belongs in ~/.zshrc; anything you set on
+# purpose belongs here.
+#
+# HOW IT GETS LOADED — nothing to wire up
+# ---------------------------------------
+#   ~/.zshrc
+#     └── ~/.config/zsh/.zshrc          line 33: for f in ~/.config/function/*; do source "$f"; done
+#           └── ~/.config/function/*     ← this file is picked up by that glob
+#
+# The glob is alphabetical, so the load order is:
+#
+#   android-env  →  env (this file)  →  functionrc
+#
+# Two consequences worth knowing:
+#
+#   1. This runs BEFORE functionrc, so its 792 functions can read anything set here.
+#   2. functionrc PREPENDS to PATH (~/.scripts, ~/.privatescripts, ~/.binjutsu/x86_64), and
+#      prepending preserves what is already there — so a PATH set here survives, it just ends up
+#      further right. If you ever need a value to beat something functionrc sets, rename this file
+#      to `zz-env` and the same glob will load it last instead. Nothing else changes.
+#
+# It also runs before the REST of ~/.zshrc (which is sourced from its line 1), so conda's PATH edit
+# and the gcloud includes still land after this file. That is the intended order.
+#
+# WHAT DOES *NOT* GO HERE
+# -----------------------
+# No secrets. This file is world-readable (644) and lives in a config directory you might one day
+# put in a dotfiles repo. Keys already have two homes, both 0600 and both outside version control:
+#
+#   ~/.secure/apikeys        KEY=value lines, read by ~/.secure/load-keys.sh from ~/.zshrc.
+#                            The parser skips blanks, comments and empty values, so an unfilled
+#                            template entry can never clobber a real one.
+#   ~/.secret/env            sourced by functionrc's line 10 (`~/.secret/**`). Currently holds
+#                            GEMINI_API_KEY. Redundant with the above — worth folding into
+#                            ~/.secure/apikeys one day so there is a single secret store.
+#
+# Add a variable by putting it in the right section below, then `exec zsh` (or run `rld-zshrc`,
+# defined in functionrc) to reload.
+
+
+# ── Build caches ──────────────────────────────────────────────────────────────
+# The root disk is near-full, so Rust and npm artifacts are pushed onto the dev-cache mount instead
+# of ~/.cargo and ~/.npm. Keeps root clear and keeps builds on a filesystem with room to work.
+#
+# NOTE for parallel builds: a single shared CARGO_TARGET_DIR means two cargo processes can fight
+# over the same artifacts — running `cargo test` beside a live `tauri dev` corrupts the shared
+# rlib and produces link errors that look like code errors. Give a side build its own directory:
+#     CARGO_TARGET_DIR=/mnt/storage/dev-cache/targets/side cargo test
+export CARGO_TARGET_DIR="/mnt/storage/dev-cache/targets"
+export npm_config_cache="/mnt/storage/dev-cache/npm-cache"
+
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+# Faster conversation scrolling in Claude Code's fullscreen TUI (the default is slower).
+# Tune it live inside a session with /scroll-speed.
+export CLAUDE_CODE_SCROLL_SPEED=5
+
+# Restores the todo/task tools and the Ctrl+T panel; Claude Code 2.1.233 disabled them on Opus 5.
+export CLAUDE_CODE_ENABLE_TODO_TOOLS=1
+
+
+# ── Audio: latency and server policy ──────────────────────────────────────────
+# Buffer hint for PipeWire clients: 1024 frames at 48 kHz ≈ 21.3 ms. Bigger buffers cost latency
+# and buy safety from xruns; this is the "works while a browser and a DAW are both open" end of the
+# range rather than the tracking end. It is a REQUEST — PipeWire may hand back a different quantum
+# if another client has already asked for a smaller one, since the graph runs at one rate for
+# everybody. `pw-top` shows the quantum actually in force.
+export PIPEWIRE_LATENCY="1024/48000"
+
+# The same figure for anything still speaking PulseAudio through pipewire-pulse (21 ms ≈ the 21.3
+# above, rounded — Pulse takes whole milliseconds). Kept in step with PIPEWIRE_LATENCY on purpose:
+# two different targets means the Pulse path silently re-buffers and the latency you measure is not
+# the one you set. If you change one, change both.
+export PULSE_LATENCY_MSEC=21
+
+# NEVER let a JACK client spawn its own jackd. PipeWire already provides the JACK API here (no real
+# jackd is running), and a client that starts one gets a SECOND audio server fighting for the same
+# devices — which shows up as a device that will not open, or audio that dies when the app exits.
+# The app sets this itself; setting it here too means it also holds for anything you launch by hand.
+export JACK_NO_START_SERVER=1
+
+
+# ── X11 fallback — deliberately NOT active ────────────────────────────────────
+# For the "Failed to initialize GTK" case only, exactly as you noted. Left commented because it is
+# WRONG on this machine as a standing setting:
+#
+#   session   : wayland  (XDG_SESSION_TYPE=wayland, WAYLAND_DISPLAY=wayland-1)
+#   DISPLAY   : :0
+#   X sockets : /tmp/.X11-unix/X0  — :0 is the ONLY display; there is no :1
+#
+# Exporting DISPLAY=:1 from here would point every X11/XWayland program at a display that does not
+# exist, so they would fail with "cannot open display" — a worse and more confusing failure than
+# the GTK one it is meant to work around, and it would apply to every shell rather than the one
+# command that needed it.
+#
+# Use it per-command instead, which is where it belongs:
+#
+#     DISPLAY=:1 some-gtk-app
+#
+# If a real second display ever exists (an Xephyr/Xvfb nested server, a second seat), uncomment.
+# Check first with: ls /tmp/.X11-unix/
+# export DISPLAY=:1
+
+
+# ── Your variables below ──────────────────────────────────────────────────────

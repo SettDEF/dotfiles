@@ -1,0 +1,11 @@
+[Unit]
+Description=Thermal/PCIe black-box recorder (crash forensics)
+
+[Service]
+ExecStart=%h/.local/bin/thermal-blackbox.sh
+Restart=always
+RestartSec=5
+Nice=19
+
+[Install]
+WantedBy=default.target

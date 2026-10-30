@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Isotope"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#000000"
+grey2 = "#404040"
+grey3 = "#606060"
+grey4 = "#808080"
+grey5 = "#c0c0c0"
+grey6 = "#d0d0d0"
+grey7 = "#e0e0e0"
+grey8 = "#ffffff"
+red1 = "#ff0000"
+orange1 = "#ff9900"
+red2 = "#ff0099"
+green1 = "#33ff00"
+cyan1 = "#00ffff"
+blue1 = "#0066ff"
+purple1 = "#cc00ff"
+blue2 = "#3300ff"
+
+[roles]
+background = "#000000"
+foreground = "#ffffff"
+primary = "#cc00ff"

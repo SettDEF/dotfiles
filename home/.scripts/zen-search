@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+// zen-search - web searches through your own browser (tela-zen), no API key.
+//
+//   zen-search [-e ddg|google|bing] [-n N] [-j TABS] QUERY...      url<TAB>title<TAB>query per result
+//   printf 'q1\nq2\n' | zen-search                       one query per line
+//   zen-search --clean                                    close search tabs an earlier run left open
+//
+// Talks to tela-zen's agent control socket (the one zen-agent uses): opens ONE
+// agent tab (unselected, marked, its own cookie container), loads each search
+// there, reads the page locally and prints the result links, then closes the
+// tab. Exit status: 0 results, 1 none, 2 an error (no browser, no socket).
+
+const net = require("net"), fs = require("fs"), path = require("path"), os = require("os");
+
+const ENGINES = {
+  ddg: q => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,
+  google: q => `https://www.google.com/search?q=${encodeURIComponent(q)}&num=30`,
+  bing: q => `https://www.bing.com/search?q=${encodeURIComponent(q)}&count=30`,
+};
+// the engines' own links are not results
+const OWN = /(^|\.)(duckduckgo\.com|google\.[a-z.]+|gstatic\.com|bing\.com|microsoft\.com|youtube\.com\/(results|redirect))(\/|$)/i;
+
+function die(msg) { process.stderr.write(`zen-search: ${msg}\n`); process.exit(2); }
+
+let engine = "ddg", max = 0, tabs = 4, cleanOnly = false;
+const words = [];
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === "-h" || a === "--help") { process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(1, 11).map(l => l.replace(/^\/\/ ?/, "")).join("\n") + "\n"); process.exit(0); }
+  else if (a === "-e" || a === "--engine") engine = argv[++i];
+  else if (a.startsWith("--engine=")) engine = a.slice(9);
+  else if (a === "-n" || a === "--max") max = Number(argv[++i]) || 0;
+  else if (a === "--clean") cleanOnly = true;
+  else if (a === "-j" || a === "--tabs") tabs = Math.max(1, Number(argv[++i]) || 1);
+  else if (a === "--") { words.push(...argv.slice(i + 1)); break; }
+  else words.push(a);
+}
+if (!ENGINES[engine]) die(`no engine "${engine}" (ddg, google, bing)`);
+
+async function queries() {
+  if (words.length) return [words.join(" ")];
+  if (process.stdin.isTTY) die("no query (give one, or pipe them in)");
+  let text = "";
+  for await (const c of process.stdin) text += c;
+  return text.split("\n").map(l => l.trim()).filter(Boolean);
+}
+
+// the profile whose browser is running with agent control on
+const base = path.join(os.homedir(), ".zen");
+const sock = process.env.ZEN_AGENT_SOCKET || (fs.existsSync(base) ? fs.readdirSync(base).map(d => path.join(base, d, "zen-agent.sock")).find(fs.existsSync) : null);
+if (!sock) die("tela-zen is not running with agent control (no zen-agent.sock)");
+let token;
+try { token = fs.readFileSync(path.join(path.dirname(sock), "zen-agent.token"), "utf8").trim(); } catch { die("no agent token next to the socket"); }
+
+const s = net.createConnection(sock);
+s.on("error", e => die(`socket: ${e.message}`));
+let buf = "", id = 0;
+const wait = {};
+s.on("data", c => {
+  buf += c;
+  let i;
+  while ((i = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, i); buf = buf.slice(i + 1);
+    try { const m = JSON.parse(line); if (wait[m.id]) { wait[m.id](m); delete wait[m.id]; } } catch {}
+  }
+});
+const call = (verb, params) => new Promise(r => { const n = ++id; wait[n] = r; s.write(JSON.stringify({ id: n, verb, params }) + "\n"); });
+
+// every tab this run opened, closed on any way out: done, Ctrl+C, a reader gone (head, fzf), a kill
+const open = new Set();
+let closing = null;
+const closeAll = () => closing ??= Promise.all([...open].map(id => call("closeTab", { tabId: id }).then(() => open.delete(id), () => {})));
+const leave = code => { const t = setTimeout(() => process.exit(code), 1500); closeAll().then(() => { clearTimeout(t); s.end(); process.exit(code); }); };
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGPIPE"]) process.on(sig, () => leave(130));
+process.stdout.on("error", () => leave(0));   // the reader went away (EPIPE)
+
+// agent tabs still open from an earlier run that was cut off: closed before anything else
+async function cleanLeftovers() {
+  const l = await call("listTabs", {});
+  const old = (l.ok ? l.result.tabs : []).filter(t => t.agentOwned && /duckduckgo\.com|google\.|bing\.com/.test(t.host || ""));
+  await Promise.all(old.map(t => call("closeTab", { tabId: t.tabId })));
+  return old.length;
+}
+
+(async () => {
+  const qs = cleanOnly ? [] : await queries();
+  const hello = await call("hello", { token, write: true, client: "zen-search" });
+  if (!hello.ok) die(`the browser refused: ${hello.code}`);
+  const cleaned = await cleanLeftovers();
+  if (cleanOnly) { process.stderr.write(`zen-search: closed ${cleaned} leftover tab(s)\n`); s.end(); process.exit(0); }
+  // several agent tabs, each taking the next query: searches run side by side
+  let found = 0, next = 0;
+  const seen = new Set();
+  const worker = async () => {
+    const tab = await call("newAgentTab", {});
+    if (!tab.ok) { process.stderr.write(`zen-search: no agent tab: ${tab.code}\n`); return; }
+    const tabId = tab.result.tabId;
+    open.add(tabId);
+    try {
+      while (next < qs.length && !(max && found >= max)) {
+        const q = qs[next++];
+        const nav = await call("navigate", { url: ENGINES[engine](q), tabId });
+        if (!nav.ok) { process.stderr.write(`zen-search: ${q}: ${nav.code}\n`); continue; }
+        const page = await call("readPage", { tabId });
+        const md = page.ok ? page.result.markdown : "";
+        for (const m of md.matchAll(/\[([^\]]{2,300})\]\((https?:\/\/[^)\s]+)\)/g)) {
+          const [, title, url] = m;
+          const host = url.split("/")[2] || "";
+          if (OWN.test(host) || seen.has(url)) continue;
+          seen.add(url);
+          process.stdout.write(`${url}\t${title.replace(/\s+/g, " ").trim()}\t${q}\n`);
+          if (max && ++found >= max) break;
+          if (!max) found++;
+        }
+      }
+    } finally {
+      await call("closeTab", { tabId });
+      open.delete(tabId);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(tabs, qs.length) }, worker));
+  s.end();
+  process.exit(found > 0 ? 0 : 1);
+})();

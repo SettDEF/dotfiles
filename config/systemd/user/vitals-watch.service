@@ -1,0 +1,20 @@
+[Unit]
+Description=vitals — record system findings as they appear and clear
+Documentation=file:///mnt/storage/dev/projects/vitals/README.md
+# Nothing here needs the graphical session; running early means a problem that
+# happens during login is still recorded.
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/home/caesar/.scripts/apps/vitals/vitals --watch --interval 30
+Restart=always
+RestartSec=10
+# A monitor that shows up in its own process list is a bug. Keep it cheap.
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=20
+MemoryMax=200M
+
+[Install]
+WantedBy=default.target

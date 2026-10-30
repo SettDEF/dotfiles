@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Generate GIMP templates (New Image -> Template) from a data table.
+#
+# WHY A GENERATOR
+#   templaterc is ~18 lines of s-expression per entry. Writing 300 by hand
+#   guarantees typos, and a template with wrong dimensions is worse than no
+#   template: you only notice after you have drawn on it.
+#
+# TWO THINGS THE FORMAT GETS ASKED WRONG
+#   - width/height are ALWAYS pixels. `unit` only chooses what the New Image
+#     dialog displays. A0 is stored as 9933x14043 with (unit millimeters),
+#     because 841 mm at 300 ppi is 9933 px.
+#   - GIMP REWRITES THIS FILE WHOLESALE WHEN IT EXITS. Run this with GIMP
+#     closed or your entries are discarded on its next quit.
+#
+# Data rows:  Name|W|H|unit|dpi
+#   unit px = W,H are pixels as given
+#   unit mm = W,H are millimetres, converted at dpi
+#   unit in = W,H are inches, converted at dpi
+set -euo pipefail
+
+RC="$HOME/.config/GIMP/3.2/templaterc"
+DATA="${1:-$HOME/.scripts/gimp-templates.data}"
+[ -f "$DATA" ] || { echo "no data file: $DATA" >&2; exit 1; }
+
+if pgrep -x gimp >/dev/null 2>&1; then
+    echo "GIMP is running — it rewrites templaterc on exit and would discard these." >&2
+    echo "Close GIMP and run again." >&2
+    exit 1
+fi
+
+[ -f "$RC" ] && cp -f "$RC" "$RC.bak-$(date +%Y%m%d%H%M%S)"
+
+# Keep whatever GIMP already had; only append names that are new.
+existing=$(grep -oE '\(GimpTemplate "[^"]+"' "$RC" 2>/dev/null | sed 's/(GimpTemplate "//;s/"$//' || true)
+
+tmp=$(mktemp)
+if [ -f "$RC" ]; then cat "$RC" > "$tmp"; else
+    printf '# GIMP templaterc\n#\n# This file will be entirely rewritten each time you exit.\n\n' > "$tmp"
+fi
+
+added=0; skipped=0
+while IFS='|' read -r name w h unit dpi; do
+    case "$name" in ''|'#'*) continue ;; esac
+    if printf '%s\n' "$existing" | grep -qxF "$name"; then skipped=$((skipped+1)); continue; fi
+    case "$unit" in
+        px) pw=$w; ph=$h; gunit=pixels ;;
+        mm) pw=$(awk -v v="$w" -v d="$dpi" 'BEGIN{printf "%d", (v/25.4)*d + 0.5}')
+            ph=$(awk -v v="$h" -v d="$dpi" 'BEGIN{printf "%d", (v/25.4)*d + 0.5}')
+            gunit=millimeters ;;
+        in) pw=$(awk -v v="$w" -v d="$dpi" 'BEGIN{printf "%d", v*d + 0.5}')
+            ph=$(awk -v v="$h" -v d="$dpi" 'BEGIN{printf "%d", v*d + 0.5}')
+            gunit=inches ;;
+        *)  echo "bad unit '$unit' for $name" >&2; continue ;;
+    esac
+    cat >> "$tmp" <<EOF
+(GimpTemplate "$name"
+    (width $pw)
+    (height $ph)
+    (unit $gunit)
+    (xresolution $dpi)
+    (yresolution $dpi)
+    (resolution-unit inches)
+    (image-type rgb)
+    (precision u8-non-linear)
+    (color-profile NULL)
+    (simulation-profile NULL)
+    (simulation-bpc no)
+    (simulation-intent relative-colorimetric)
+    (fill-type background)
+    (comment "")
+    (filename ""))
+EOF
+    added=$((added+1))
+done < "$DATA"
+
+mv -f "$tmp" "$RC"
+echo "added $added, skipped $skipped already present"
+echo "total now: $(grep -c GimpTemplate "$RC")"

@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Brogrammer"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#1f1f1f"
+red1 = "#f81118"
+green1 = "#2dc55e"
+yellow1 = "#ecba0f"
+blue1 = "#2a84d2"
+blue2 = "#4e5ab7"
+blue3 = "#1081d6"
+grey2 = "#d6dbe5"
+grey3 = "#d6dbe5"
+red2 = "#de352e"
+green2 = "#1dd361"
+yellow2 = "#f3bd09"
+blue4 = "#1081d6"
+blue5 = "#5350b9"
+blue6 = "#0f7ddb"
+grey4 = "#ffffff"
+
+[roles]
+background = "#1f1f1f"
+foreground = "#ffffff"
+primary = "#f81118"

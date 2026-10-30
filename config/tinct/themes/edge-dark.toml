@@ -1,0 +1,26 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Edge Dark"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2c2e34"
+grey2 = "#33353f"
+grey3 = "#363944"
+grey4 = "#42444a"
+grey5 = "#5f6167"
+grey6 = "#7f8490"
+grey7 = "#bdc0c4"
+grey8 = "#dadbe1"
+red1 = "#ec7279"
+yellow1 = "#e7c664"
+purple1 = "#a695e9"
+blue1 = "#5cb6f8"
+cyan1 = "#85d3f2"
+cyan2 = "#33bbc7"
+green1 = "#a7df78"
+
+[roles]
+background = "#2c2e34"
+foreground = "#dadbe1"
+primary = "#ec7279"

@@ -1,0 +1,30 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Mellow"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#161617"
+grey2 = "#131314"
+grey3 = "#c9c7cd"
+grey4 = "#27272a"
+red1 = "#f5a191"
+green1 = "#90b99f"
+orange1 = "#e6b99d"
+purple1 = "#aca1cf"
+purple2 = "#e29eca"
+red2 = "#ea83a5"
+grey5 = "#c1c0d4"
+grey6 = "#353539"
+red3 = "#ffae9f"
+green2 = "#9dc6ac"
+orange2 = "#f0c5a9"
+purple3 = "#b9aeda"
+purple4 = "#ecaad6"
+red4 = "#f591b2"
+grey7 = "#cac9dd"
+
+[roles]
+background = "#161617"
+foreground = "#c9c7cd"
+primary = "#ea83a5"

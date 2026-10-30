@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Gigavolt"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#202126"
+grey2 = "#2d303d"
+grey3 = "#5a576e"
+cyan1 = "#a1d2e6"
+blue1 = "#cad3ff"
+grey4 = "#e9e7e1"
+grey5 = "#eff0f9"
+grey6 = "#f2fbff"
+red1 = "#ff661a"
+green1 = "#19f988"
+yellow1 = "#ffdc2d"
+yellow2 = "#f2e6a9"
+purple1 = "#fb6acb"
+blue2 = "#40bfff"
+purple2 = "#ae94f9"
+blue3 = "#6187ff"
+
+[roles]
+background = "#202126"
+foreground = "#f2fbff"
+primary = "#19f988"

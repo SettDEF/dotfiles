@@ -1,0 +1,50 @@
+#!/bin/bash
+# ThinkPad System Check Script
+# Author: williamkiddy
+# Created: 2025-03-17 12:16
+# Version: 1.0
+
+echo "=== ThinkPad System Check ==="
+echo "Date: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "User: $USER"
+echo
+
+echo "=== CPU Information ==="
+echo "Model:"
+cat /proc/cpuinfo | grep "model name" | head -n1 | cut -d: -f2
+echo -n "Current Temperature: "
+sensors | awk '/Package id 0:/ {print $4}'
+echo -n "Current Frequency: "
+cat /proc/cpuinfo | grep "cpu MHz" | head -n1 | cut -d: -f2 | xargs printf "%.0f MHz\n"
+echo "CPU Governor: "
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+
+echo -e "\n=== Memory Information ==="
+free -h
+
+echo -e "\n=== Storage Status ==="
+df -h /
+
+echo -e "\n=== Battery Information ==="
+if [ -d "/sys/class/power_supply/BAT0" ]; then
+    echo -n "Battery Status: "
+    cat /sys/class/power_supply/BAT0/status
+    echo -n "Charge Level: "
+    cat /sys/class/power_supply/BAT0/capacity
+    echo "%"
+else
+    echo "No battery found"
+fi
+
+echo -e "\n=== Fan Status ==="
+if [ -f "/proc/acpi/ibm/fan" ]; then
+    cat /proc/acpi/ibm/fan
+else
+    echo "ThinkPad fan information not available"
+fi
+
+echo -e "\n=== System Load ==="
+uptime
+
+echo -e "\n=== Recent System Messages ==="
+dmesg | tail -n 5

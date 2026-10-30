@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+# craft-sync - keep the ArtCraft "Crafting Apps" (storytold/*craft on GitHub)
+# packaged in the local pacman repo, so `pacman -Syu` installs and updates them
+# like every other package.
+#
+# Every app can be packaged in one of these formats:
+#   git       built from the newest commit of a branch (default: the repo's main
+#             branch); rebuilt whenever that branch moves. Includes <app>-cli.
+#   native    the release's plain .tar.gz build: no compiling, no FUSE
+#   deb       the release's .deb contents, repacked for pacman (same program as native)
+#   appimage  the release's single-file AppImage (needs fuse2; AppImageLauncher is bypassed)
+# Flatpak is not offered: it installs through flatpak, not pacman.
+#
+# For each app this writes a PKGBUILD under $CRAFT_PKGS/<app>-bin when the
+# source (release or commit), the format or the packaging revision changed, and
+# hands it to publish-local, which builds it and adds it to the [wuchains] repo.
+# The program goes on /mnt/storage/Applications/Crafting (the root partition is
+# nearly full); only launchers, menu entries, icons and app metadata go under /usr.
+#
+# git builds: sources in $CRAFT_SRC/<app>, cargo output in $CRAFT_TARGET/<app>
+# (kept, so the next build is incremental), logs in $CRAFT_LOGS/<app>.log. Each
+# build runs in a systemd scope capped at $CRAFT_MEM_MAX of memory and at low CPU
+# and IO priority, so it cannot starve the desktop.
+#
+# Run daily by craft-sync.timer (systemd --user). Release checksums come from
+# each release's SHA256SUMS.txt; a file not listed there is skipped, not trusted.
+#
+#   craft-sync                         update apps whose source/format changed
+#   craft-sync photocraft              just these
+#   craft-sync --format git            set the format for all apps and rebuild
+#   craft-sync --format appimage pdfcraft     one app only
+#   craft-sync --branch dev filmcraft  build filmcraft from branch `dev` (implies git)
+#   craft-sync --branch - filmcraft    back to the repo's default branch
+#   craft-sync --branches filmcraft    list the branches you can pick
+#   craft-sync --list                  packaged vs upstream, format and branch
+#   craft-sync --names                 package names, for pacman -S
+#
+# Settings live in ~/.config/craft-sync.conf:
+#   format=git            all apps
+#   pdfcraft=native       one app
+#   filmcraft.branch=dev  one app's branch (git format)
+# First install:  sudo pacman -Sy $(craft-sync --names)
+# After switching a branch, use `sudo pacman -Syuu`: the other branch may count
+# fewer commits, which pacman sees as a downgrade.
+
+set -uo pipefail
+APPS=(photocraft lightcraft filmcraft pdfcraft vectorcraft effectcraft designcraft
+      wordcraft cadcraft gridcraft soundcraft deckcraft figcraft craft-launcher)
+# ArtCraft itself has no Linux release; its pure-Rust app (artcraft-native) is
+# built from git instead (see artcraft_dist).
+APPS+=(artcraft)
+# Release files named differently from their repo.
+upname() { case $1 in craft-launcher) echo artcraft-launcher ;; *) echo "$1" ;; esac; }
+OWNER=storytold
+CRAFT_PKGS="${CRAFT_PKGS:-/mnt/storage/dev/packages}"
+CRAFT_SRC="${CRAFT_SRC:-/mnt/storage/dev-cache/craft-src}"
+CRAFT_TARGET="${CRAFT_TARGET:-/mnt/storage/dev-cache/craft-target}"
+CRAFT_LOGS="${CRAFT_LOGS:-/mnt/storage/dev-cache/craft-logs}"
+CRAFT_MEM_MAX="${CRAFT_MEM_MAX:-12G}"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/craft-sync.conf"
+DEST=/mnt/storage/Applications/Crafting
+# Packaging revision, raised when the PKGBUILD changes without a new upstream
+# release (2: AppImageLauncher bypass; 3: format choice).
+REL=3
+
+die() { echo "craft-sync: $*" >&2; exit 1; }
+api() { if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then gh api "$1"; else curl -fsSL "https://api.github.com/$1"; fi; }
+pkgvar() { sed -n "s/^$1=//p" "$CRAFT_PKGS/$2-bin/PKGBUILD" 2>/dev/null; }
+
+# conf_get KEY - value of the last KEY= line
+conf_get() {
+    local k="${1//./\\.}"
+    sed -n "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*\([^[:space:]#]*\).*/\1/p" "$CONF" 2>/dev/null | tail -1
+}
+# format_for APP - per-app line, else format=, else native
+format_for() { local f; f=$(conf_get "$1"); [ -n "$f" ] || f=$(conf_get format); echo "${f:-native}"; }
+# branch_for APP - per-app branch, else branch=, else empty (the repo's default)
+branch_for() { local b; b=$(conf_get "$1.branch"); [ -n "$b" ] || b=$(conf_get branch); echo "$b"; }
+# set_conf KEY VALUE - replace or append one line; VALUE "-" deletes it
+set_conf() {
+    local k="${1//./\\.}"
+    mkdir -p "$(dirname "$CONF")"
+    [ -f "$CONF" ] || printf '# craft-sync: format for every app (git | native | deb | appimage),\n# per-app overrides (pdfcraft=appimage) and branches (filmcraft.branch=dev)\n' > "$CONF"
+    sed -i "/^[[:space:]]*$k[[:space:]]*=/d" "$CONF"
+    [ "$2" = - ] || echo "$1=$2" >> "$CONF"
+}
+is_app() { local a; for a in "${APPS[@]}"; do [ "$a" = "$1" ] && return 0; done; return 1; }
+
+# New crafts join by themselves: repos named <something>craft that carry a
+# Linux packaging script. Checked once a day (cached); CRAFT_DISCOVER=0 = off.
+discover() {
+    [ "${CRAFT_DISCOVER:-1}" = 1 ] || return 0
+    local cache="$CRAFT_LOGS/.discovered" r
+    mkdir -p "$CRAFT_LOGS"
+    if [ ! -s "$cache" ] || [ -n "$(find "$cache" -mmin +1440 2>/dev/null)" ]; then
+        api "orgs/$OWNER/repos?per_page=100" 2>/dev/null \
+            | jq -r '.[] | select(.archived | not) | .name | select(test("^[a-z]+craft$"))' \
+            | while read -r r; do
+                api "repos/$OWNER/$r/contents/packaging/linux/package.sh" >/dev/null 2>&1 && echo "$r"
+            done > "$cache.new" && [ -s "$cache.new" ] && command mv -f "$cache.new" "$cache"
+        rm -f "$cache.new"
+    fi
+    [ -s "$cache" ] || return 0
+    while read -r r; do
+        is_app "$r" || { APPS+=("$r"); echo "craft-sync: new craft on GitHub: $r (added)" >&2; }
+    done < "$cache"
+}
+discover
+default_branch() { git ls-remote --symref "https://github.com/$OWNER/$1.git" HEAD 2>/dev/null | awk '/^ref:/ {sub("refs/heads/", "", $2); print $2; exit}'; }
+
+case "${1:-}" in
+    -h|--help) sed -n 2,42p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --names) printf '%s-bin ' "${APPS[@]}"; echo; exit 0 ;;
+    --branches)
+        [ $# -ge 2 ] && is_app "$2" || die "--branches needs an app name"
+        def=$(default_branch "$2")
+        git ls-remote --heads "https://github.com/$OWNER/$2.git" | sed 's#.*refs/heads/##' \
+            | while read -r b; do [ "$b" = "$def" ] && echo "$b  (default)" || echo "$b"; done
+        echo "current: $(branch_for "$2" | sed 's/^$/(default)/')"
+        exit 0 ;;
+    --list)
+        for a in "${APPS[@]}"; do
+            fmt=$(format_for "$a")
+            if [ "$fmt" = git ]; then
+                br=$(branch_for "$a"); br=${br:-$(default_branch "$a")}
+                up=$(git ls-remote "https://github.com/$OWNER/$a.git" "refs/heads/$br" 2>/dev/null | cut -c1-7)
+                printf '%-12s packaged %-22s %-8s upstream %s@%s\n' "$a" "$(pkgvar pkgver "$a" || true)" "$(pkgvar _format "$a")" "$br" "${up:-?}"
+            else
+                up=$(api "repos/$OWNER/$a/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' | sed 's/^v//')
+                printf '%-12s packaged %-22s %-8s upstream %-8s wanted %s\n' "$a" "$(pkgvar pkgver "$a")" "$(pkgvar _format "$a")" "${up:-?}" "$fmt"
+            fi
+        done; exit 0 ;;
+    --format)
+        [ $# -ge 2 ] || die "--format needs git, native, deb or appimage"
+        case "$2" in git|native|deb|appimage) ;; *) die "unknown format '$2' (git, native, deb, appimage)" ;; esac
+        newfmt="$2"
+        if [ $# -gt 2 ]; then for a in "${@:3}"; do is_app "$a" || die "unknown app '$a'"; set_conf "$a" "$newfmt"; done; set -- "${@:3}"
+        else set_conf format "$newfmt"; set --; fi
+        echo "format set to $newfmt in $CONF" ;;
+    --branch)
+        [ $# -ge 2 ] || die "--branch needs a branch name (or - for the default branch)"
+        newbr="$2"
+        [[ "$newbr" = - || "$newbr" =~ ^[A-Za-z0-9._/-]+$ ]] || die "invalid branch name '$newbr'"
+        if [ $# -gt 2 ]; then
+            for a in "${@:3}"; do
+                is_app "$a" || die "unknown app '$a'"
+                if [ "$newbr" != - ] && ! git ls-remote --exit-code --heads "https://github.com/$OWNER/$a.git" "$newbr" >/dev/null; then
+                    die "$a has no branch '$newbr' (see: craft-sync --branches $a)"
+                fi
+                set_conf "$a.branch" "$newbr"; [ "$(format_for "$a")" = git ] || set_conf "$a" git
+            done; set -- "${@:3}"
+        else
+            set_conf branch "$newbr"; set --
+        fi
+        echo "branch set to $newbr in $CONF" ;;
+    -*) die "unknown option '$1' (see --help)" ;;
+esac
+[ $# -gt 0 ] && { for a in "$@"; do is_app "$a" || die "unknown app '$a'"; done; APPS=("$@"); }
+command -v publish-local >/dev/null || die "publish-local not found in PATH"
+mkdir -p "$CRAFT_PKGS"
+
+# artcraft_dist TARGET - pack the built artcraft-native like the other crafts'
+# tarballs (bin/, share/applications, share/icons), versioned as ArtCraft.
+# Runs in the source dir.
+artcraft_dist() {
+    local tgt=$1 ver name root
+    ver=$(jq -r '.version' crates/desktop/artcraft/tauri.conf.json)
+    name="artcraft-$ver-linux-x86_64"
+    root="$tgt/dist/$name"
+    mkdir -p "$root/bin" "$root/share/applications" "$root/share/icons/hicolor/128x128/apps" "$root/share/icons/hicolor/256x256/apps"
+    install -m755 "$tgt/release/artcraft-native" "$root/bin/artcraft-native"
+    install -m644 crates/desktop/artcraft/icons/128x128.png "$root/share/icons/hicolor/128x128/apps/artcraft.png"
+    install -m644 crates/desktop/artcraft/icons/128x128@2x.png "$root/share/icons/hicolor/256x256/apps/artcraft.png"
+    cat > "$root/share/applications/artcraft.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=ArtCraft
+Comment=AI image, video and audio creation (native Rust app)
+Exec=artcraft-native
+Icon=artcraft
+Categories=Graphics;AudioVideo;
+StartupWMClass=artcraft-native
+EOF
+    tar -C "$tgt/dist" -czf "$tgt/dist/$name.tar.gz" "$name"
+}
+
+# git_build APP BRANCH SHA - build that commit; prints the tarball path on success
+git_build() {
+    local a=$1 br=$2 sha=$3 src="$CRAFT_SRC/$1" tgt="$CRAFT_TARGET/$1" log="$CRAFT_LOGS/$1.log"
+    local url="https://github.com/$OWNER/$a.git"
+    mkdir -p "$CRAFT_SRC" "$tgt" "$CRAFT_LOGS"
+    {
+        [ -d "$src/.git" ] || git clone --quiet --no-checkout "$url" "$src" || return 1
+        git -C "$src" fetch --quiet origin "+refs/heads/$br:refs/remotes/origin/$br" || return 1
+        git -C "$src" -c advice.detachedHead=false checkout --quiet --force "$sha" || return 1
+        git -C "$src" clean --quiet -fdx || return 1
+        rm -rf "$tgt/dist"
+        (
+            cd "$src" || exit 1
+            local cap=()
+            command -v systemd-run >/dev/null && cap=(systemd-run --user --scope --quiet -p MemoryHigh=$((${CRAFT_MEM_MAX%G} * 3 / 4))G -p MemoryMax="$CRAFT_MEM_MAX" -p CPUWeight=20 -p IOWeight=20 --)
+            if [ -f packaging/linux/package.sh ]; then
+                "${cap[@]}" env CARGO_TARGET_DIR="$tgt" DIST="$tgt/dist" nice -n 15 bash packaging/linux/package.sh --formats tar
+            elif [ "$a" = artcraft ]; then
+                "${cap[@]}" env CARGO_TARGET_DIR="$tgt" nice -n 15 cargo build --release -p artcraft_native && artcraft_dist "$tgt"
+            else
+                echo "no packaging/linux/package.sh in $a"; exit 1
+            fi
+        )
+    } > "$log" 2>&1 || { echo "  $a: build failed, last lines of $log:" >&2; tail -15 "$log" | sed 's/^/    /' >&2; return 1; }
+    ls -t "$tgt"/dist/*.tar.gz 2>/dev/null | head -1
+}
+
+for a in "${APPS[@]}"; do
+    fmt=$(format_for "$a")
+    # ArtCraft has no Linux release to download: always from git.
+    [ "$a" = artcraft ] && fmt=git
+    dir="$CRAFT_PKGS/$a-bin"
+    have=$(pkgvar pkgver "$a"); hfmt=$(pkgvar _format "$a"); hrel=$(pkgvar pkgrel "$a")
+    branch="" commit=""
+
+    if [ "$fmt" = git ]; then
+        branch=$(branch_for "$a"); branch=${branch:-$(default_branch "$a")}
+        [ -n "$branch" ] || { echo "  $a: cannot reach its git repo" >&2; continue; }
+        commit=$(git ls-remote "https://github.com/$OWNER/$a.git" "refs/heads/$branch" | cut -f1)
+        [ -n "$commit" ] || { echo "  $a: no branch '$branch' (craft-sync --branches $a)" >&2; continue; }
+        if [ "$hfmt" = git ] && [ "$(pkgvar _commit "$a")" = "$commit" ] && [ "${hrel%%.*}" = "$REL" ] \
+            && ls /mnt/storage/repo/"$a"-bin-"$have"-"$hrel"-*.pkg.tar.zst >/dev/null 2>&1; then
+            echo "  $a $branch@${commit:0:7}: up to date"; continue
+        fi
+        echo "── $a: building $branch@${commit:0:7} (log: $CRAFT_LOGS/$a.log)"
+        tarball=$(git_build "$a" "$branch" "$commit") && [ -f "$tarball" ] || continue
+        base=$(basename "$tarball" | sed -E "s/^$(upname "$a")-(.*)-linux-[^-]+\.tar\.gz$/\1/" | tr -c 'A-Za-z0-9.\n' '_')
+        ver="${base}.r$(git -C "$CRAFT_SRC/$a" rev-list --count "$commit").g${commit:0:7}"
+        asset="$a-$ver.tar.gz"
+        url="file://$tarball"
+        sha=$(sha256sum "$tarball" | cut -d' ' -f1)
+    else
+        case "$fmt" in
+            native)   asset_suffix="linux-x86_64.tar.gz" ;;
+            deb)      asset_suffix="linux-x86_64.deb" ;;
+            appimage) asset_suffix="linux-x86_64.AppImage" ;;
+            *) echo "  $a: unknown format '$fmt' in $CONF - skipped" >&2; continue ;;
+        esac
+        rel=$(api "repos/$OWNER/$a/releases/latest" 2>/dev/null) || { echo "  $a: no release info" >&2; continue; }
+        ver=$(jq -r '.tag_name' <<<"$rel" | sed 's/^v//')
+        asset="$(upname "$a")-$ver-$asset_suffix"
+        url=$(jq -r --arg n "$asset" '.assets[] | select(.name==$n) | .browser_download_url' <<<"$rel")
+        sums=$(jq -r '.assets[] | select(.name=="SHA256SUMS.txt") | .browser_download_url' <<<"$rel")
+        [ -n "$url" ] || { echo "  $a $ver: no $fmt build in the release" >&2; continue; }
+        [ -n "$sums" ] || { echo "  $a $ver: no SHA256SUMS.txt - skipped" >&2; continue; }
+        sha=$(curl -fsSL "$sums" | awk -v n="$asset" '$2 == n {print $1}')
+        [ -n "$sha" ] || { echo "  $a $ver: $asset not in SHA256SUMS.txt - skipped" >&2; continue; }
+        if [ "$have" = "$ver" ] && [ "${hfmt:-appimage}" = "$fmt" ] && [ "${hrel%%.*}" = "$REL" ] \
+            && ls /mnt/storage/repo/"$a"-bin-"$ver"-"$hrel"-*.pkg.tar.zst >/dev/null 2>&1; then
+            echo "  $a $ver ($fmt): up to date"; continue
+        fi
+    fi
+
+    # Every rebuild of the same upstream version must get a higher pkgrel, or
+    # pacman sees "same version" and never installs it (a format switch, say).
+    # pkgrel = REL.build; build counts up and starts over with a new version.
+    if [ "$have" = "$ver" ] && [ "${hrel%%.*}" = "$REL" ] && [[ "$hrel" == *.* ]]; then
+        build=$(( ${hrel#*.} + 1 ))
+    elif [ "$have" = "$ver" ] && [ -n "$hrel" ]; then
+        build=1          # older layout without a counter: still must move up
+    else
+        build=0
+    fi
+    pkgrel="$REL.$build"
+    desc=$(api "repos/$OWNER/$a" 2>/dev/null | jq -r '.description // empty' | sed 's/["$`\\]//g')
+    [ "$fmt" = git ] && desc="${desc:-$a (ArtCraft Crafting App)} (git $branch)"
+    if [ "$fmt" = appimage ]; then deps="fuse2"; else deps="glibc gcc-libs"; fi
+    # artcraft-native opens a webview for the Midjourney sign-in
+    [ "$a" = artcraft ] && deps="$deps webkit2gtk-4.1 gtk3"
+    mkdir -p "$dir"
+    cat > "$dir/PKGBUILD" <<EOF
+# Generated by craft-sync - edit ~/.scripts/apps/photocraft/craft-sync, not this file.
+pkgname=$a-bin
+pkgver=$ver
+pkgrel=$pkgrel
+pkgdesc="${desc:-$a (ArtCraft Crafting App)}"
+arch=(x86_64)
+url="https://github.com/$OWNER/$a"
+license=(Apache-2.0)
+depends=($deps)
+provides=($a)
+conflicts=($a)
+options=(!strip !debug)
+source=("$asset::$url")
+noextract=("$asset")
+sha256sums=('$sha')
+_format=$fmt
+_branch=$branch
+_commit=$commit
+_dest=$DEST
+
+prepare() {
+    rm -rf root squashfs-root && mkdir root
+    case \$_format in
+        native|git) bsdtar -xf "$asset" -C root --strip-components 1 ;;
+        deb)      bsdtar -xOf "$asset" 'data.tar*' | bsdtar -xf - -C root --strip-components 2 ;;
+        appimage) chmod +x "$asset"
+                  ./"$asset" --appimage-extract '*.desktop' >/dev/null
+                  ./"$asset" --appimage-extract 'usr/share/icons/*' >/dev/null
+                  mkdir -p root/share/applications
+                  cp squashfs-root/*.desktop root/share/applications/
+                  cp -r squashfs-root/usr/share/icons root/share/ ;;
+    esac
+}
+
+package() {
+    install -dm755 "\$pkgdir/usr/bin" "\$pkgdir/usr/share" "\$pkgdir\$_dest"
+    if [ "\$_format" = appimage ]; then
+        install -Dm755 "$asset" "\$pkgdir\$_dest/$a.AppImage"
+        printf '#!/bin/sh\n# Skip AppImageLauncher: it would move the app into ~/Applications.\nAPPIMAGELAUNCHER_DISABLE=1 exec %s "\$@"\n' "\$_dest/$a.AppImage" > "\$pkgdir/usr/bin/$a"
+        chmod 755 "\$pkgdir/usr/bin/$a"
+    else
+        # The program on storage; /usr/bin gets symlinks to every command in it.
+        install -dm755 "\$pkgdir\$_dest/$a"
+        cp -a root/bin "\$pkgdir\$_dest/$a/"
+        [ -d root/share/doc ] && cp -a root/share/doc "\$pkgdir\$_dest/$a/"
+        for b in root/bin/*; do ln -s "\$_dest/$a/bin/\${b##*/}" "\$pkgdir/usr/bin/\${b##*/}"; done
+    fi
+    for d in applications icons metainfo mime; do
+        [ -d "root/share/\$d" ] && cp -r "root/share/\$d" "\$pkgdir/usr/share/"
+    done
+    find "\$pkgdir/usr/share" -type d -exec chmod 755 {} +
+    find "\$pkgdir/usr/share" -type f -exec chmod 644 {} +
+}
+EOF
+    echo "── $a ${have:-new} ${hfmt:-} -> $ver $fmt"
+    PROJECTS_DIR="$CRAFT_PKGS" publish-local "$a-bin" 2>&1 | grep -E "published|ERROR|error|nothing" || true
+    # The package now lives in the repo; drop the download, the unpacked trees
+    # and the second copy of the package (~3x the app's size). git builds also
+    # drop the tarball; the cargo target dir stays for incremental rebuilds.
+    rm -rf "${dir:?}/src" "${dir:?}/pkg" "${dir:?}"/*.pkg.tar.zst "${dir:?}/$asset"
+    [ "$fmt" = git ] && rm -f "${tarball:?}"
+done

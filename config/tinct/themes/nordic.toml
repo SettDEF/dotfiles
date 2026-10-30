@@ -1,0 +1,28 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Nordic"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#242933"
+grey2 = "#2e3440"
+grey3 = "#3b4252"
+grey4 = "#434c5e"
+grey5 = "#4c566a"
+blue1 = "#5e81ac"
+blue2 = "#81a1c1"
+cyan1 = "#88c0d0"
+cyan2 = "#8fbcbb"
+green1 = "#a3be8c"
+purple1 = "#b48ead"
+red1 = "#bf616a"
+red2 = "#d08770"
+yellow1 = "#ebcb8b"
+grey6 = "#d8dee9"
+grey7 = "#e5e9f0"
+grey8 = "#eceff4"
+
+[roles]
+background = "#242933"
+foreground = "#eceff4"
+primary = "#d08770"

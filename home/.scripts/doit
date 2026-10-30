@@ -1,0 +1,1809 @@
+#!/usr/bin/env bash
+# Enhanced Todo Manager Script - Streamlined & Smart
+# Git-like Command Line Interface - Subcommands and Verb-Noun Style
+# UI/UX Improvements, Tag Management, Time Tracking, Advanced Cheatsheet Feature
+
+# --- Strict Mode ---
+set -euo pipefail
+
+# --- Configuration Section ---
+# --- Color Codes ---
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+BLUE="\033[0;34m"
+CYAN="\033[0;36m"
+MAGENTA="\033[0;35m"
+NC="\033[0m"
+BOLD="\033[1m"
+UNDERLINE="\033[4m"
+
+# --- Script Configuration ---
+DEFAULT_TODO_DIR="${HOME}/Documents/Notes/Todos"
+CHEATSHEET_DIR="${HOME}/Documents/Notes/Cheatsheets"
+NOTE_DIR="${HOME}/Documents/Notes/General"
+ARCHIVE_FOLDER="archive"
+TIMER_DIR="${HOME}/.cache/todo-timer"
+DEFAULT_TODO_EXTENSION=".md"
+CHEATSHEET_EXTENSION=".md"
+TMUX_WINDOW_NAME="todo-edit"
+EDITOR="nvim"  # Your preferred editor
+USE_FZF=1      # Enable fzf since you likely have it installed
+USE_TMUX=1     # Enable tmux for your AwesomeWM setup
+PRIORITIES=("High" "Medium" "Low" "None")
+TODO_KEYWORDS=("TODO" "FIXME" "NOTE" "HACK" "WARN" "PERF" "TEST")
+
+# Feature Flags
+USE_FZF=0
+USE_TMUX=0
+
+# Priority Levels
+PRIORITIES=("High" "Medium" "Low" "None")
+
+# TODO Keywords
+TODO_KEYWORDS=("TODO" "FIXME" "NOTE" "HACK" "WARN" "PERF" "TEST")
+
+# --- Cheatsheet Configuration ---
+CHEATSHEET_DIR="${HOME}/Documents/Notes/Cheatsheets"
+CHEATSHEET_EXTENSION=".md"
+
+# --- Helper Functions ---
+
+command_exists() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1
+}
+
+update_config() {
+  local jq_filter="$1"
+  local tmp_file
+  if ! command_exists jq; then
+    echo -e "${RED}jq is required but not installed. Cannot update config.${NC}" >&2
+    return 1
+  fi
+  tmp_file=$(mktemp)
+  trap 'rm -f "$tmp_file"' EXIT HUP INT TERM
+  if jq "$jq_filter" "$CONFIG_FILE" > "$tmp_file"; then
+    if mv "$tmp_file" "$CONFIG_FILE"; then
+      trap - EXIT HUP INT TERM
+      return 0
+    else
+      echo -e "${RED}Error moving temp file to config file.${NC}" >&2
+      rm -f "$tmp_file"
+      trap - EXIT HUP INT TERM
+      return 1
+    fi
+  else
+    echo -e "${RED}Error processing config update with jq.${NC}" >&2
+    rm -f "$tmp_file"
+    trap - EXIT HUP INT TERM
+    return 1
+  fi
+}
+
+is_git_repo() {
+  local dir="$1"
+  git -C "$dir" rev-parse --git-dir > /dev/null 2>&1
+}
+
+use_fzf() {
+  [[ "$USE_FZF" -eq 1 ]] && command_exists fzf
+}
+
+use_tmux() {
+  [[ "$USE_TMUX" -eq 1 ]] && command_exists tmux
+}
+
+fzf_select() {
+  local prompt="$1"
+  shift
+  local items=("${@}")
+  local selected_item=""
+  if use_fzf; then
+    if [[ ${#items[@]} -eq 0 ]]; then
+      echo ""
+      return 0
+    fi
+    selected_item=$(printf "%s\n" "${items[@]}" | fzf --prompt="$prompt")
+    echo "$selected_item"
+  else
+    echo -e "${YELLOW}fzf disabled or not found. Using 'select' for selection:${NC}" >&2
+    if [[ ${#items[@]} -eq 0 ]]; then
+      echo -e "${YELLOW}No items to select from.${NC}" >&2
+      echo ""
+      return 0
+    fi
+    local item PS3
+    PS3="${prompt} "
+    select item in "${items[@]}"; do
+      if [[ -n "$item" ]]; then
+        echo "$item"
+        break
+      else
+        echo -e "${RED}Invalid selection.${NC}" >&2
+        echo ""
+        break
+      fi
+    done
+  fi
+}
+
+tmux_edit() {
+  local file="$1"
+  if use_tmux; then
+    if [[ -z "$TMUX" ]]; then
+      echo -e "${YELLOW}tmux integration enabled, but not running inside tmux. Opening in default editor.${NC}" >&2
+      ${EDITOR} "$file"
+      return
+    fi
+    if ! tmux list-windows -F '#{window_name}' | grep -q "^${TMUX_WINDOW_NAME}$"; then
+      local escaped_file
+      escaped_file=$(printf "%s" "$file" | sed "s/'/'\\\\''/g")
+      tmux new-window -n "$TMUX_WINDOW_NAME" "${EDITOR} '${escaped_file}'"
+    else
+      local escaped_file
+      escaped_file=$(printf "%s" "$file" | sed "s/'/'\\\\''/g")
+      tmux send-keys -t "$TMUX_WINDOW_NAME" C-u "${EDITOR} '${escaped_file}'" C-m
+      tmux select-window -t "$TMUX_WINDOW_NAME"
+    fi
+  else
+    ${EDITOR} "$file"
+  fi
+}
+
+project_file() {
+  local path="$1"
+  echo "$(basename "$path")${DEFAULT_TODO_EXTENSION}"
+}
+
+get_last_project() {
+  if [[ -n "$LAST_PROJECT" ]]; then
+    echo "$LAST_PROJECT"
+  elif command_exists jq; then
+    jq -r '.last_project // empty' "$CONFIG_FILE" 2>/dev/null || echo ""
+  else
+    echo ""
+  fi
+}
+
+set_last_project() {
+  local project_path="$1"
+  LAST_PROJECT="$project_path"
+  if ! update_config ".last_project = \"$project_path\""; then
+    echo -e "${YELLOW}Warning: Failed to update last_project in config file.${NC}" >&2
+  fi
+}
+
+sanitize_filename() {
+  local filename="$1"
+  echo "$filename" | sed -e 's/[^a-zA-Z0-9._-]\+/-/g' -e 's/^-+//' -e 's/-+$//'
+}
+
+ensure_cheatsheet_dir() {
+  if ! mkdir -p "${CHEATSHEET_DIR}"; then
+    echo -e "${RED}Error: Failed to create cheatsheet directory: ${CHEATSHEET_DIR}${NC}" >&2
+    exit 1
+  fi
+}
+
+create_cheatsheet() {
+  local tool="$1"
+  local category="$2"
+  local description="${3:-}"
+  local commands="${4:-}"
+  ensure_cheatsheet_dir
+  echo -e "${CYAN}DEBUG: Creating cheatsheet for tool: $tool, category: $category${NC}" >&2
+
+  # Prompt for tool name if not provided
+  if [ -z "$tool" ]; then
+    read -r -p "$(echo -e "${YELLOW}Enter tool name (e.g., nmap):${NC} ")" tool
+  fi
+  if [ -z "$tool" ]; then
+    echo -e "${RED}Error: Tool name cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local sanitized_tool=$(sanitize_filename "$tool")
+  echo -e "${CYAN}DEBUG: Sanitized tool: $sanitized_tool${NC}" >&2
+
+  # Prompt for category if not provided
+  if [ -z "$category" ]; then
+    local categories=()
+    mapfile -t categories < <(find "${CHEATSHEET_DIR}" -maxdepth 1 -type d -not -path "${CHEATSHEET_DIR}" -exec basename {} \; | sort)
+    categories+=("New category...")
+    category=$(fzf_select "Select or create category: " "${categories[@]}")
+    if [ "$category" == "New category..." ]; then
+      read -r -p "$(echo -e "${YELLOW}Enter new category name:${NC} ")" category
+      if [ -z "$category" ]; then
+        echo -e "${YELLOW}No category provided. Using 'misc'.${NC}" >&2
+        category="misc"
+      fi
+    fi
+  fi
+  if [ -z "$category" ]; then
+    echo -e "${YELLOW}No category selected. Using 'misc'.${NC}" >&2
+    category="misc"
+  fi
+  category=$(sanitize_filename "$category")
+  echo -e "${CYAN}DEBUG: Category: $category${NC}" >&2
+
+  # Set default description if not provided
+  if [ -z "$description" ]; then
+    description="Cheatsheet for $sanitized_tool"
+  fi
+  echo -e "${CYAN}DEBUG: Description: $description${NC}" >&2
+
+  # Define target file
+  local file="${CHEATSHEET_DIR}/${category}/${sanitized能夠tool}${CHEATSHEET_EXTENSION}"
+  echo -e "${CYAN}DEBUG: Target file: $file${NC}" >&2
+
+  # Create directory
+  if ! mkdir -p "$(dirname "$file")"; then
+    echo -e "${RED}Error: Failed to create directory $(dirname "$file")${NC}" >&2
+    return 1
+  fi
+
+  # Check if file exists
+  if [ -f "$file" ]; then
+    echo -e "${YELLOW}Cheatsheet already exists: $file${NC}" >&2
+    read -r -p "$(echo -e "${YELLOW}Overwrite? (y/n):${NC} ")" confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      echo -e "${YELLOW}Creation cancelled.${NC}" >&2
+      return 0
+    fi
+  fi
+
+  # Write cheatsheet file
+  if [ -z "$commands" ]; then
+    commands="Add basic commands and syntax here"
+    if ! cat > "$file" <<EOF
+---
+tool: $sanitized_tool
+category: $category
+description: $description
+---
+# $description
+
+## Basics
+$commands
+
+## Examples
+Add example commands or use cases here
+
+## Tips
+Add tips or best practices here
+
+## References
+Add references or further reading here
+EOF
+    then
+      echo -e "${RED}Error: Failed to write to $file${NC}" >&2
+      return 1
+    fi
+    tmux_edit "$file"
+  else
+    if ! cat > "$file" <<EOF
+---
+tool: $sanitized_tool
+category: $category
+description: $description
+---
+# $description
+
+## Basics
+Add basic commands and syntax here
+
+## Examples
+$commands
+
+## Tips
+Add tips or best practices here
+
+## References
+Add references or further reading here
+EOF
+    then
+      echo -e "${RED}Error: Failed to write to $file${NC}" >&2
+      return 1
+    fi
+  fi
+  echo -e "${GREEN}Created cheatsheet: $file${NC}"
+}
+
+create_cheatsheet() {
+  local tool="$1"
+  local category="$2"
+  local description="${3:-}"
+  local commands="${4:-}"
+  ensure_cheatsheet_dir
+  echo -e "${CYAN}DEBUG: Creating cheatsheet for tool: $tool, category: $category${NC}" >&2
+
+  if [ -z "$tool" ]; then
+    read -r -p "$(echo -e "${YELLOW}Enter tool name (e.g., nmap):${NC} ")" tool
+  fi
+  if [ -z "$tool" ]; then
+    echo -e "${RED}Error: Tool name cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local sanitized_tool=$(sanitize_filename "$tool")
+  echo -e "${CYAN}DEBUG: Sanitized tool: $sanitized_tool${NC}" >&2
+
+  if [ -z "$category" ]; then
+    local categories=()
+    mapfile -t categories < <(find "${CHEATSHEET_DIR}" -maxdepth 1 -type d -not -path "${CHEATSHEET_DIR}" -exec basename {} \; | sort)
+    categories+=("New category...")
+    category=$(fzf_select "Select or create category: " "${categories[@]}")
+    if [ "$category" == "New category..." ]; then
+      read -r -p "$(echo -e "${YELLOW}Enter new category name:${NC} ")" category
+      if [ -z "$category" ]; then
+        echo -e "${YELLOW}No category provided. Using 'misc'.${NC}" >&2
+        category="misc"
+      fi
+    fi
+  fi
+  if [ -z "$category" ]; then
+    echo -e "${YELLOW}No category selected. Using 'misc'.${NC}" >&2
+    category="misc"
+  fi
+  category=$(sanitize_filename "$category")
+  echo -e "${CYAN}DEBUG: Category: $category${NC}" >&2
+
+  if [ -z "$description" ]; then
+    description="Cheatsheet for $sanitized_tool"
+  fi
+  echo -e "${CYAN}DEBUG: Description: $description${NC}" >&2
+
+  local file="${CHEATSHEET_DIR}/${category}/${sanitized_tool}${CHEATSHEET_EXTENSION}"
+  echo -e "${CYAN}DEBUG: Target file: $file${NC}" >&2
+
+  if ! mkdir -p "$(dirname "$file")"; then
+    echo -e "${RED}Error: Failed to create directory $(dirname "$file")${NC}" >&2
+    return 1
+  fi
+
+  if [ -f "$file" ]; then
+    echo -e "${YELLOW}Cheatsheet already exists: $file${NC}" >&2
+    read -r -p "$(echo -e "${YELLOW}Overwrite? (y/n):${NC} ")" confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      echo -e "${YELLOW}Creation cancelled.${NC}" >&2
+      return 0
+    fi
+  fi
+
+  if [ -z "$commands" ]; then
+    commands="Add basic commands and syntax here"
+    if ! cat > "$file" <<EOF
+---
+tool: $sanitized_tool
+category: $category
+description: $description
+---
+# $description
+
+## Basics
+$commands
+
+## Examples
+Add example commands or use cases here
+
+## Tips
+Add tips or best practices here
+
+## References
+Add references or further reading here
+EOF
+    then
+      echo -e "${RED}Error: Failed to write to $file${NC}" >&2
+      return 1
+    fi
+    tmux_edit "$file"
+  else
+    if ! cat > "$file" <<EOF
+---
+tool: $sanitized_tool
+category: $category
+description: $description
+---
+# $description
+
+## Basics
+Add basic commands and syntax here
+
+## Examples
+$commands
+
+## Tips
+Add tips or best practices here
+
+## References
+Add references or further reading here
+EOF
+    then
+      -e "${RED}Error: Failed to write to $file${NC}" >&2
+      return 1
+    fi
+  fi
+  echo -e "${GREEN}Created cheatsheet: $file${NC}"
+}
+
+edit_cheatsheet() {
+  local tool="$1"
+  ensure_cheatsheet_dir
+  if [ -z "$tool" ]; then
+    local cheatsheets=()
+    mapfile -t cheatsheets < <(find "${CHEATSHEET_DIR}" -type f -name "*${CHEATSHEET_EXTENSION}" -exec sh -c 'echo "$(basename {} ${CHEATSHEET_EXTENSION})|$(dirname {} | sed "s|${CHEATSHEET_DIR}/||")"' \; | sort)
+    if [ ${#cheatsheets[@]} -eq 0 ]; then
+      echo -e "${YELLOW}No cheatsheets found in ${CHEATSHEET_DIR}. Create one with './todo.sh cheatsheet create'.${NC}"
+      return 1
+    fi
+    local selected=$(printf "%s\n" "${cheatsheets[@]}" | fzf --prompt="Select cheatsheet to edit: " --preview="bat --style=plain --color=always ${CHEATSHEET_DIR}/{2}/{1}${CHEATSHEET_EXTENSION} 2>/dev/null || glow ${CHEATSHEET_DIR}/{2}/{1}${CHEATSHEET_EXTENSION} 2>/dev/null || cat ${CHEATSHEET_DIR}/{2}/{1}${CHEATSHEET_EXTENSION}")
+    if [ -z "$selected" ]; then
+      echo -e "${YELLOW}No cheatsheet selected.${NC}"
+      return 1
+    fi
+    tool=$(echo "$selected" | cut -d'|' -f1)
+    local category=$(echo "$selected" | cut -d'|' -f2)
+    local file="${CHEATSHEET_DIR}/${category}/${tool}${CHEATSHEET_EXTENSION}"
+    tmux_edit "$file"
+    echo -e "${GREEN}Edited cheatsheet:${NC} $file"
+  else
+    local file=$(find "${CHEATSHEET_DIR}" -type f -name "${tool}${CHEATSHEET_EXTENSION}" | head -n 1)
+    if [ -z "$file" ]; then
+      echo -e "${RED}Cheatsheet not found for tool: ${tool}${NC}"
+      return 1
+    fi
+    tmux_edit "$file"
+    echo -e "${GREEN}Edited cheatsheet:${NC} $file"
+  fi
+}
+
+search_cheatsheet_commands() {
+  local query="$1"
+  ensure_cheatsheet_dir
+  if [ -z "$query" ]; then
+    read -r -p "$(echo -e "${YELLOW}Enter search query for commands:${NC} ")" query
+  fi
+  if [ -z "$query" ]; then
+    echo -e "${YELLOW}Search query cannot be empty.${NC}" >&2
+    return 1
+  fi
+  echo -e "${GREEN}Searching for '${query}' in cheatsheets:${NC}"
+  local results=()
+  mapfile -t results < <(find "${CHEATSHEET_DIR}" -type f -name "*${CHEATSHEET_EXTENSION}" -exec sh -c "sed -n '/^---$/,/^---$/d; /^[[:space:]]*$/d; p' {} | grep -in \"$query\" | sed 's|^\([0-9]*\):\(.*\)|{}:\1:\2|'" \;)
+  if [ ${#results[@]} -eq 0 ]; then
+    echo -e "${YELLOW}No commands found matching '${query}'.${NC}"
+    return 1
+  fi
+  if use_fzf; then
+    local selected=$(printf "%s\n" "${results[@]}" | fzf --prompt="Select command: " --preview="echo {} | cut -d':' -f1 | xargs -I % sh -c 'bat --style=plain --color=always % 2>/dev/null || glow % 2>/dev/null || cat %'" --preview-window=up:50%)
+    if [ -n "$selected" ]; then
+      local file=$(echo "$selected" | cut -d':' -f1)
+      local command=$(echo "$selected" | cut -d':' -f3-)
+      echo "#cheatsheet:$command" >> "${HOME}/.zsh_history"
+      if command_exists xclip; then
+        echo -n "$command" | xclip -selection clipboard
+        echo -e "${GREEN}Command copied to clipboard:${NC} ${command}"
+      else
+        echo -e "${YELLOW}xclip not found. Command:${NC} ${command}"
+      fi
+    fi
+  else
+    printf "%s\n" "${results[@]}" | nl -w2 -s'. '
+    read -r -p "$(echo -e "${YELLOW}Enter number to copy command:${NC} ")" num
+    if [[ "$num" =~ ^[0-9]+$ ]]; then
+      local selected=$(printf "%s\n" "${results[@]}" | sed -n "${num}p")
+      if [ -n "$selected" ]; then
+        local file=$(echo "$selected" | cut -d':' -f1)
+        local command=$(echo "$selected" | cut -d':' -f3-)
+        echo "#cheatsheet:$command" >> "${HOME}/.zsh_history"
+        if command_exists xclip; then
+          echo -n "$command" | xclip -selection clipboard
+          echo -e "${GREEN}Command copied to clipboard:${NC} ${command}"
+        else
+          echo -e "${YELLOW}xclip not found. Command:${NC} ${command}"
+        fi
+      fi
+    fi
+  fi
+}
+
+search_cheatsheet_history() {
+  local query="$1"
+  if [ ! -f "${HOME}/.zsh_history" ]; then
+    echo -e "${YELLOW}ZSH history file not found at ${HOME}/.zsh_history.${NC}"
+    return 1
+  fi
+  if use_fzf; then
+    local selected=$(grep "#cheatsheet:" "${HOME}/.zsh_history" | sed 's/.*#cheatsheet://' | sort -u | fzf --prompt="Select command from history: " --preview="echo {} | bat --style=plain --color=always --language=sh 2>/dev/null || cat -" --preview-window=up:50% --query="$query")
+    if [ -n "$selected" ]; then
+      if command_exists xclip; then
+        echo -n "$selected" | xclip -selection clipboard
+        echo -e "${GREEN}Command copied to clipboard:${NC} ${selected}"
+      else
+        echo -e "${YELLOW}xclip not found. Command:${NC} ${selected}"
+      fi
+    fi
+  else
+    echo -e "${GREEN}Cheatsheet Command History:${NC}"
+    grep "#cheatsheet:" "${HOME}/.zsh_history" | sed 's/.*#cheatsheet://' | sort -u | nl -w2 -s'. '
+    read -r -p "$(echo -e "${YELLOW}Enter number to copy command:${NC} ")" num
+    if [[ "$num" =~ ^[0-9]+$ ]]; then
+      local selected=$(grep "#cheatsheet:" "${HOME}/.zsh_history" | sed 's/.*#cheatsheet://' | sort -u | sed -n "${num}p")
+      if [ -n "$selected" ]; then
+        if command_exists xclip; then
+          echo -n "$selected" | xclip -selection clipboard
+          echo -e "${GREEN}Command copied to clipboard:${NC} ${selected}"
+        else
+          echo -e "${YELLOW}xclip not found. Command:${NC} ${selected}"
+        fi
+      fi
+    fi
+  fi
+}
+
+# --- Project Management Functions ---
+
+add_project() {
+  local path="$1"
+  if [[ -z "$path" ]]; then
+    read -r -p "$(毎年 -e "${YELLOW}Enter project path:${NC} ")" path
+  fi
+  path=$(realpath "$path" 2>/dev/null || echo "$path")
+  if [[ ! -d "$path" ]]; then
+    echo -e "${RED}Error: Directory does not exist: ${path}${NC}" >&2
+    return 1
+  fi
+  if ! command_exists jq; then
+    echo -e "${RED}jq is required but not installed. Cannot add project.${NC}" >&2
+    return 1
+  fi
+  local project_list
+  project_list=$(jq -r '.projects[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+  if echo "$project_list" | grep -Fx "$path" > /dev/null; then
+    echo -e "${YELLOW}Project already exists: ${path}${NC}"
+    return 0
+  fi
+  if ! update_config ".projects += [\"$path\"]"; then
+    echo -e "${RED}Error adding project to config file.${NC}" >&2
+    return 1
+  fi
+  echo -e "${GREEN}Project added: ${path}${NC}"
+}
+
+list_projects() {
+  if ! command_exists jq; then
+    echo -e "${RED}jq is required but not installed. Cannot list projects.${NC}" >&2
+    return 1
+  fi
+  local projects
+  projects=$(jq -r '.projects[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+  if [[ -z "$projects" ]]; then
+    echo -e "${YELLOW}No projects configured. Add one with 'add-project'.${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}Configured Projects:${NC}"
+  echo "$projects" | nl -w2 -s'. '
+}
+
+select_project() {
+  if ! command_exists jq; then
+    echo -e "${RED}jq is required but not installed. Cannot select project.${NC}" >&2
+    return 1
+  fi
+  local projects=()
+  mapfile -t projects < <(jq -r '.projects[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+  projects+=("global")
+  if [[ ${#projects[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No projects configured. Add one with 'add-project'.${NC}"
+    return 1
+  fi
+  local selected_project
+  selected_project=$(fzf_select "Select a project: " "${projects[@]}")
+  if [[ -z "$selected_project" ]]; then
+    echo -e "${YELLOW}No project selected.${NC}"
+    return 1
+  fi
+  if [[ "$selected_project" == "global" ]]; then
+    echo "${HOME}/todos/global"
+  else
+    if [[ ! -d "$selected_project" ]]; then
+      echo -e "${RED}Error: Project directory does not exist: ${selected_project}${NC}" >&2
+      return 1
+    fi
+    echo "$selected_project"
+  fi
+}
+
+remove_project() {
+  local path="$1"
+  if [[ -z "$path" ]]; then
+    local projects=()
+    mapfile -t projects < <(jq -r '.projects[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+    if [[ ${#projects[@]} -eq 0 ]]; then
+      echo -e "${YELLOW}No projects configured.${NC}"
+      return 0
+    fi
+    path=$(fzf_select "Select project to remove: " "${projects[@]}")
+  fi
+  if [[ -z "$path" ]]; then
+    echo -e "${YELLOW}No project selected.${NC}"
+    return 0
+  fi
+  path=$(realpath "$path" 2>/dev/null || echo "$path")
+  if ! command_exists jq; then
+    echo -e "${RED}jq is required but not installed. Cannot remove project.${NC}" >&2
+    return 1
+  fi
+  local project_list
+  project_list=$(jq -r '.projects[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+  if ! echo "$project_list" | grep -Fx "$path" > /dev/null; then
+    echo -e "${YELLOW}Project not found: ${path}${NC}"
+    return 0
+  fi
+  if ! update_config ".projects -= [\"$path\"]"; then
+    echo -e "${RED}Error removing project from config file.${NC}" >&2
+    return 1
+  fi
+  echo -e "${GREEN}Project removed: ${path}${NC}"
+}
+
+edit_config() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo -e "${RED}Config file does not exist: ${CONFIG_FILE}${NC}" >&2
+    return 1
+  fi
+  tmux_edit "$CONFIG_FILE"
+  load_config_vars
+  echo -e "${GREEN}Configuration file edited: ${CONFIG_FILE}${NC}"
+}
+
+set_editor() {
+  local editor="$1"
+  if [[ -z "$editor" ]]; then
+    read -r -p "$(echo -e "${YELLOW}Enter editor command (e.g., nvim, vim, nano):${NC} ")" editor
+  fi
+  if [[ -z "$editor" ]]; then
+    echo -e "${RED}Editor cannot be empty.${NC}" >&2
+    return 1
+  fi
+  if ! command_exists "$editor"; then
+    echo -e "${RED}Editor not found: ${editor}${NC}" >&2
+    return 1
+  fi
+  if ! update_config ".editor = \"$editor\""; then
+    echo -e "${RED}Error updating editor in config file.${NC}" >&2
+    return 1
+  fi
+  EDITOR="$editor"
+  echo -e "${GREEN}Editor set to: ${editor}${NC}"
+}
+
+enable_fzf() {
+  if ! command_exists fzf; then
+    echo -e "${RED}fzf is not installed. Please install fzf to enable integration.${NC}" >&2
+    return 1
+  fi
+  if ! update_config '.use_fzf = 1'; then
+    echo -e "${RED}Error enabling fzf in config file.${NC}" >&2
+    return 1
+  fi
+  USE_FZF=1
+  echo -e "${GREEN}fzf integration enabled.${NC}"
+}
+
+disable_fzf() {
+  if ! update_config '.use_fzf = 0'; then
+    echo -e "${RED}Error disabling fzf in config file.${NC}" >&2
+    return 1
+  fi
+  USE_FZF=0
+  echo -e "${GREEN}fzf integration disabled.${NC}"
+}
+
+enable_tmux() {
+  if ! command_exists tmux; then
+    echo -e "${RED}tmux is not installed. Please install tmux to enable integration.${NC}" >&2
+    return 1
+  fi
+  if ! update_config '.use_tmux = 1'; then
+    echo -e "${RED}Error enabling tmux in config file.${NC}" >&2
+    return 1
+  fi
+  USE_TMUX=1
+  echo -e "${GREEN}tmux integration enabled.${NC}"
+}
+
+disable_tmux() {
+  if ! update_config '.use_tmux = 0'; then
+    echo -e "${RED}Error disabling tmux in config file.${NC}" >&2
+    return 1
+  fi
+  USE_TMUX=0
+  echo -e "${GREEN}tmux integration disabled.${NC}"
+}
+
+show_dashboard() {
+  if ! command_exists jq; then
+    echo -e "${RED}jq is required but not installed. Cannot show dashboard.${NC}" >&2
+    return 1
+  fi
+  local projects=()
+  mapfile -t projects < <(jq -r '.projects[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+  if [[ ${#projects[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No projects configured. Add one with 'add-project'.${NC}"
+    return 0
+  fi
+  echo -e "${BLUE}${BOLD}=== Project Dashboard ===${NC}"
+  for project in "${projects[@]}"; do
+    if [[ ! -d "$project" ]]; then
+      echo -e "${RED}Project directory not found: ${project}${NC}"
+      continue
+    fi
+    local todo_count=0 done_count=0
+    todo_count=$(find "$project" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" | wc -l)
+    done_count=$(find "$project/${ARCHIVE_FOLDER}" -type f -name "*${DEFAULT_TODO_EXTENSION}" 2>/dev/null | wc -l)
+    echo -e "${GREEN}Project:${NC} ${project}"
+    echo -e "  ${YELLOW}Active TODOs:${NC} ${todo_count}"
+    echo -e "  ${YELLOW}Completed TODOs:${NC} ${done_count}"
+    if is_git_repo "$project"; then
+      local git_status
+      git_status=$(git -C "$project" status --short | wc -l)
+      echo -e "  ${YELLOW}Git Changes:${NC} ${git_status}"
+    fi
+    echo
+  done
+}
+
+# --- TODO Management Functions ---
+
+create_todo() {
+  local folder="$1"
+  local name="$2"
+  local priority="$3"
+  local tags="$4"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  if [[ -z "$name" ]]; then
+    read -r -p "$(echo -e "${YELLOW}Enter TODO name:${NC} ")" name
+  fi
+  if [[ -z "$name" ]]; then
+    echo -e "${RED}TODO name cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local sanitized_name=$(sanitize_filename "$name")
+  if [[ "$sanitized_name" != "$name" ]]; then
+    echo -e "${YELLOW}Using sanitized name:${NC} ${sanitized_name}"
+  fi
+  local file="${folder}/${sanitized_name}${DEFAULT_TODO_EXTENSION}"
+  if [[ -f "$file" ]]; then
+    echo -e "${YELLOW}TODO already exists:${NC} $file"
+    read -r -p "$(echo -e "${YELLOW}Overwrite? (y/n):${NC} ")" confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      echo -e "${YELLOW}Creation cancelled.${NC}"
+      return 0
+    fi
+  fi
+  if [[ -z "$priority" ]]; then
+    priority=$(fzf_select "Select priority: " "${PRIORITIES[@]}")
+    priority=${priority:-"None"}
+  fi
+  if [[ -z "$tags" ]]; then
+    read -r -p "$(echo -e "${YELLOW}Enter tags (comma-separated, optional):${NC} ")" tags
+  fi
+  tags=$(echo "$tags" | sed 's/,/ /g' | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
+  local created_date
+  created_date=$(date '+%Y-%m-%d %H:%M:%S')
+  mkdir -p "$(dirname "$file")"
+  cat > "$file" <<EOF
+---
+title: $sanitized_name
+priority: $priority
+tags: [$tags]
+created: $created_date
+status: active
+---
+# $sanitized_name
+
+Add your TODO details here.
+EOF
+  tmux_edit "$file"
+  echo -e "${GREEN}TODO created:${NC} $file"
+}
+
+list_todos() {
+  local folder="$1"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}Active TODOs in ${folder}:${NC}"
+  for i in "${!todos[@]}"; do
+    local todo_file="${folder}/${todos[$i]}"
+    local title priority tags
+    title=$(grep '^title:' "$todo_file" | sed 's/^title: //')
+    priority=$(grep '^priority:' "$todo_file" | sed 's/^priority: //')
+    tags=$(grep '^tags:' "$todo_file" | sed 's/^tags: \[//' | sed 's/\]//')
+    printf "%2d. %s (Priority: %s, Tags: %s)\n" $((i+1)) "$title" "$priority" "$tags"
+  done
+}
+
+open_todo() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'stat -c "%Y %n" {}' \; | sort -nr | cut -d' ' -f2-)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+
+  local file
+  if [[ -z "$todo_name" ]]; then
+    file=$(basename "${todos[0]}")
+    echo -e "${YELLOW}No TODO specified. Opening last modified TODO: ${file}${NC}"
+  else
+    if [[ "$todo_name" =~ ^[0-9]+$ ]] && [[ "$todo_name" -le ${#todos[@]} ]]; then
+      file=$(basename "${todos[$((todo_name-1))]}")
+    else
+      file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+    fi
+  fi
+
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+  tmux_edit "${folder}/${file}"
+  echo -e "${GREEN}Opened TODO:${NC} ${file}"
+}
+
+mark_todo_done() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+  local file
+  if [[ -z "$todo_name" ]]; then
+    if use_fzf; then
+      file=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to mark as DONE: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        file=${todos[$((input-1))]}
+      else
+        file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  else
+    if [[ "$todo_name" =~ ^[0-9]+$ ]] && [[ "$todo_name" -le ${#todos[@]} ]]; then
+      file=${todos[$((todo_name-1))]}
+    else
+      file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+    fi
+  fi
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+  local todo_file="${folder}/${file}"
+  sed -i 's/^status: active/status: done/' "$todo_file"
+  local completed_date
+  completed_date=$(date '+%Y-%m-%d %H:%M:%S')
+  echo -e "\ncompleted: $completed_date" >> "$todo_file"
+  echo -e "${GREEN}TODO marked as DONE:${NC} ${file}"
+}
+
+edit_todo_tags() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+  local file
+  if [[ -z "$todo_name" ]]; then
+    if use_fzf; then
+      file=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to edit tags: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        file=${todos[$((input-1))]}
+      else
+        file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  else
+    if [[ "$todo_name" =~ ^[0-9]+$ ]] && [[ "$todo_name" -le ${#todos[@]} ]]; then
+      file=${todos[$((todo_name-1))]}
+    else
+      file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+    fi
+  fi
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+  local todo_file="${folder}/${file}"
+  local current_tags
+  current_tags=$(grep '^tags:' "$todo_file" | sed 's/^tags: \[//' | sed 's/\]//')
+  read -r -p "$(echo -e "${YELLOW}Current tags: ${current_tags}\nEnter new tags (comma-separated):${NC} ")" new_tags
+  new_tags=$(echo "$new_tags" | sed 's/,/ /g' | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
+  sed -i "s/^tags: .*/tags: [$new_tags]/" "$todo_file"
+  echo -e "${GREEN}Tags updated for TODO:${NC} ${file}"
+}
+
+archive_todo() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+  local file
+  if [[ -z "$todo_name" ]]; then
+    if use_fzf; then
+      file=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to archive: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        file=${todos[$((input-1))]}
+      else
+        file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  else
+    if [[ "$todo_name" =~ ^[0-9]+$ ]] && [[ "$todo_name" -le ${#todos[@]} ]]; then
+      file=${todos[$((todo_name-1))]}
+    else
+      file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+    fi
+  fi
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+  local todo_file="${folder}/${file}"
+  mkdir -p "${folder}/${ARCHIVE_FOLDER}"
+  mv "$todo_file" "${folder}/${ARCHIVE_FOLDER}/"
+  sed -i 's/^status: .*/status: archived/' "${folder}/${ARCHIVE_FOLDER}/${file}"
+  local archived_date
+  archived_date=$(date '+%Y-%m-%d %H:%M:%S')
+  echo -e "\narchived: $archived_date" >> "${folder}/${ARCHIVE_FOLDER}/${file}"
+  echo -e "${GREEN}TODO archived:${NC} ${file}"
+}
+
+delete_todo() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+  local fileiciente
+  if [[ -z "$todo_name" ]]; then
+    if use_fzf; then
+      file=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to delete: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        file=${todos[$((input-1))]}
+      else
+        file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  else
+    if [[ "$todo_name" =~ ^[0-9]+$ ]] && [[ "$todo_name" -le ${#todos[@]} ]]; then
+      file=${todos[$((todo_name-1))]}
+    else
+      file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+    fi
+  fi
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+  local todo_file="${folder}/${file}"
+  read -r -p "$(echo -e "${YELLOW}Are you sure you want to delete ${file}? (y/n):${NC} ")" confirm
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    rm -f "$todo_file"
+    echo -e "${GREEN}TODO deleted:${NC} ${file}"
+  else
+    echo -e "${YELLOW}Deletion cancelled.${NC}"
+  fi
+}
+
+search_todos() {
+  local folder="$1"
+  local keyword="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  if [[ -z "$keyword" ]]; then
+    read -r -p "$(echo -e "${YELLOW}Enter search keyword:${NC} ")" keyword
+  fi
+  if [[ -z "$keyword" ]]; then
+    echo -e "${RED}Search keyword cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local results=()
+  mapfile -t results < <(grep -lir "$keyword" "$folder" --include="*${DEFAULT_TODO_EXTENSION}" --exclude-dir="${ARCHIVE_FOLDER}")
+  if [[ ${#results[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No TODOs found matching '${keyword}'.${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}TODOs matching '${keyword}':${NC}"
+  for result in "${results[@]}"; do
+    local title
+    title=$(grep '^title:' "$result" | sed 's/^title: //')
+    echo "- ${title} (${result})"
+  done
+}
+
+search_todos_by_tags() {
+  local folder="$1"
+  local tags="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  if [[ -z "$tags" ]]; then
+    read -r -p "$(echo -e "${YELLOW}Enter tags to search (comma-separated):${NC} ")" tags
+  fi
+  if [[ -z "$tags" ]]; then
+    echo -e "${RED}Tags cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local tag_list
+  tag_list=$(echo "$tags" | sed 's/,/ /g' | tr ' ' '\n' | sort -u)
+  local results=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*")
+  for todo in "${todos[@]}"; do
+    local todo_tags
+    todo_tags=$(grep '^tags:' "$todo" | sed 's/^tags: \[//' | sed 's/\]//' | tr ',' '\n' | sed 's/^[[:space:]]*//' | sort -u)
+    local match=true
+    for tag in $tag_list; do
+      if ! echo "$todo_tags" | grep -Fx "$tag" > /dev/null; then
+        match=false
+        break
+      fi
+    done
+    if $match; then
+      results+=("$todo")
+    fi
+  done
+  if [[ ${#results[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No TODOs found with tags: ${tags}${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}TODOs with tags '${tags}':${NC}"
+  for result in "${results[@]}"; do
+    local title
+    title=$(grep '^title:' "$result" | sed 's/^title: //')
+    echo "- ${title} (${result})"
+  done
+}
+
+list_project_tags() {
+  local folder="$1"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local tags=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*")
+  for todo in "${todos[@]}"; do
+    local todo_tags
+    todo_tags=$(grep '^tags:' "$todo" | sed 's/^tags: \[//' | sed 's/\]//' | tr ',' '\n' | sed 's/^[[:space:]]*//')
+    tags+=($todo_tags)
+  done
+  if [[ ${#tags[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No tags found in project: ${folder}${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}Tags in project ${folder}:${NC}"
+  printf "%s\n" "${tags[@]}" | sort -u
+}
+
+show_stats() {
+  local folder="$1"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todo_count active_count done_count archived_count
+  todo_count=$(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" | wc -l)
+  active_count=$(grep -l '^status: active' "$folder"/*${DEFAULT_TODO_EXTENSION} 2>/dev/null | wc -l)
+  done_count=$(grep -l '^status: done' "$folder"/*${DEFAULT_TODO_EXTENSION} 2>/dev/null | wc -l)
+  archived_count=$(find "$folder/${ARCHIVE_FOLDER}" -type f -name "*${DEFAULT_TODO_EXTENSION}" 2>/dev/null | wc -l)
+  echo -e "${BLUE}${BOLD}=== Project Statistics for ${folder} ===${NC}"
+  echo -e "${YELLOW}Total Active TODOs:${NC} ${todo_count}"
+  echo -e "${YELLOW}Active Status:${NC} ${active_count}"
+  echo -e "${YELLOW}Done Status:${NC} ${done_count}"
+  echo -e "${YELLOW}Archived TODOs:${NC} ${archived_count}"
+}
+
+copy_todo_title_to_clipboard() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+  local file
+  if [[ -z "$todo_name" ]]; then
+    if use_fzf; then
+      file=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to copy title: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        file=${todos[$((input-1))]}
+      else
+        file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  else
+    if [[ "$todo_name" =~ ^[0-9]+$ ]] && [[ "$todo_name" -le ${#todos[@]} ]]; then
+      file=${todos[$((todo_name-1))]}
+    else
+      file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+    fi
+  fi
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+  local todo_file="${folder}/${file}"
+  local title
+  title=$(grep '^title:' "$todo_file" | sed 's/^title: //')
+  if command_exists xclip; then
+    echo -n "$title" | xclip -selection clipboard
+    echo -e "${GREEN}Title copied to clipboard:${NC} ${title}"
+  else
+    echo -e "${YELLOW}xclip not found. Title:${NC} ${title}"
+  fi
+}
+
+backup_todos() {
+  local folder="$1"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local backup_dir="${folder}/backup_$(date '+%Y%m%d_%H%M%S')"
+  mkdir -p "$backup_dir"
+  cp -r "$folder"/*${DEFAULT_TODO_EXTENSION} "$backup_dir" 2>/dev/null
+  cp -r "$folder/${ARCHIVE_FOLDER}" "$backup_dir" 2>/dev/null
+  echo -e "${GREEN}TODOs backed up to:${NC} ${backup_dir}"
+}
+
+restore_todos() {
+  local folder="$1"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  local backups=()
+  mapfile -t backups < <(find "$folder" -maxdepth 1 -type d -name "backup_*" -exec basename {} \; | sort -r)
+  if [[ ${#backups[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No backups found in ${folder}.${NC}"
+    return 1
+  fi
+  local backup
+  if use_fzf; then
+    backup=$(printf "%s\n" "${backups[@]}" | fzf --prompt="Select backup to restore: ")
+  else
+    echo -e "${GREEN}Available backups:${NC}"
+    printf "%s\n" "${backups[@]}" | nl -w2 -s'. '
+    read -r -p "$(echo -e "${YELLOW}Enter backup number:${NC} ")" input
+    if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#backups[@]} ]]; then
+      backup=${backups[$((input-1))]}
+    fi
+  fi
+  if [[ -z "$backup" ]]; then
+    echo -e "${YELLOW}No backup selected.${NC}"
+    return 1
+  fi
+  local backup_dir="${folder}/${backup}"
+  read -r -p "$(echo -e "${YELLOW}Restore from ${backup}? This will overwrite existing TODOs. (y/n):${NC} ")" confirm
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    rm -f "$folder"/*${DEFAULT_TODO_EXTENSION}
+    rm -rf "$folder/${ARCHIVE_FOLDER}"
+    cp -r "$backup_dir"/* "$folder"/
+    echo -e "${GREEN}TODOs restored from:${NC} ${backup_dir}"
+  else
+    echo -e "${YELLOW}Restore cancelled.${NC}"
+  fi
+}
+
+toggle_checkbox() {
+  local folder="$1"
+  local todo_name="$2"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+
+  local todos=()
+  mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+  if [[ ${#todos[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+    return 1
+  fi
+
+  local file
+  if [[ -z "$todo_name" ]]; then
+    if use_fzf; then
+      file=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to toggle checkbox: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        file=${todos[$((input-1))]}
+      else
+        file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  else
+    file=$(printf "%s\n" "${todos[@]}" | grep -Fx "$todo_name${DEFAULT_TODO_EXTENSION}" || echo "")
+  fi
+
+  if [[ -z "$file" ]]; then
+    echo -e "${RED}TODO not found.${NC}" >&2
+    return 1
+  fi
+
+  local todo_file="${folder}/${file}"
+  sed -i 's/\[ \]/[x]/g; s/\[x\]/[ ]/g' "$todo_file"
+  echo -e "${GREEN}Toggled checkboxes in TODO:${NC} ${file}"
+}
+
+# --- Timer Management Functions ---
+
+start_timer() {
+  local task_name="$1"
+  if [[ -z "$task_name" ]]; then
+    read -r -p "$(echo -e "${YELLOW}Enter task name or select TODO (leave empty to select):${NC} ")" task_name
+  fi
+  if [[ -z "$task_name" ]]; then
+    local folder
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+    local todos=()
+    mapfile -t todos < <(find "$folder" -maxdepth 1 -type f -name "*${DEFAULT_TODO_EXTENSION}" -not -path "*/${ARCHIVE_FOLDER}/*" -exec sh -c 'basename {}' \; | sort)
+    if [[ ${#todos[@]} -eq 0 ]]; then
+      echo -e "${YELLOW}No active TODOs found in ${folder}.${NC}"
+      return 1
+    fi
+    if use_fzf; then
+      task_name=$(printf "%s\n" "${todos[@]}" | fzf --prompt="Select TODO to start timer: ")
+    else
+      echo -e "${GREEN}Available TODOs:${NC}"
+      printf "%s\n" "${todos[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter TODO number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#todos[@]} ]]; then
+        task_name=${todos[$((input-1))]}
+      else
+        task_name=$(printf "%s\n" "${todos[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  fi
+  if [[ -z "$task_name" ]]; then
+    echo -e "${RED}Task name cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local sanitized_task
+  sanitized_task=$(sanitize_filename "$task_name")
+  local timer_file="${TIMER_DIR}/${sanitized_task}.timer"
+  if [[ -f "$timer_file" ]]; then
+    echo -e "${YELLOW}Timer already running for task: ${task_name}${NC}"
+    return 0
+  fi
+  echo "$(date +%s)" > "$timer_file"
+  echo -e "${GREEN}Timer started for task:${NC} ${task_name}"
+}
+
+stop_timer() {
+  local task_name="$1"
+  if [[ -z "$task_name" ]]; then
+    local timers=()
+    mapfile -t timers < <(find "$TIMER_DIR" -type f -name "*.timer" -exec sh -c 'basename {} .timer' \; | sort)
+    if [[ ${#timers[@]} -eq 0 ]]; then
+      echo -e "${YELLOW}No running timers found.${NC}"
+      return 1
+    fi
+    if use_fzf; then
+      task_name=$(printf "%s\n" "${timers[@]}" | fzf --prompt="Select timer to stop: ")
+    else
+      echo -e "${GREEN}Running timers:${NC}"
+      printf "%s\n" "${timers[@]}" | nl -w2 -s'. '
+      read -r -p "$(echo -e "${YELLOW}Enter timer number or name:${NC} ")" input
+      if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$input" -le ${#timers[@]} ]]; then
+        task_name=${timers[$((input-1))]}
+      else
+        task_name=$(printf "%s\n" "${timers[@]}" | grep -Fx "$input" || echo "")
+      fi
+    fi
+  fi
+  if [[ -z "$task_name" ]]; then
+    echo -e "${RED}Task name cannot be empty.${NC}" >&2
+    return 1
+  fi
+  local sanitized_task
+  sanitized_task=$(sanitize_filename "$task_name")
+  local timer_file="${TIMER_DIR}/${sanitized_task}.timer"
+  if [[ ! -f "$timer_file" ]]; then
+    echo -e "${YELLOW}No timer found for task: ${task_name}${NC}"
+    return 1
+  fi
+  local start_time
+  start_time=$(cat "$timer_file")
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  local hours=$((duration / 3600))
+  local minutes=$(( (duration % 3600) / 60 ))
+  local seconds=$((duration % 60))
+  rm -f "$timer_file"
+  echo -e "${GREEN}Timer stopped for task: ${task_name}${NC}"
+  printf "Duration: %02d:%02d:%02d\n" $hours $minutes $seconds
+}
+
+list_timers() {
+  local timers=()
+  mapfile -t timers < <(find "$TIMER_DIR" -type f -name "*.timer" -exec sh -c 'basename {} .timer' \; | sort)
+  if [[ ${#timers[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No running timers found.${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}Running Timers:${NC}"
+  for timer in "${timers[@]}"; do
+    local start_time
+    start_time=$(cat "${TIMER_DIR}/${timer}.timer")
+    local current_time
+    current_time=$(date +%s)
+    local duration=$((current_time - start_time))
+    local hours=$((duration / 3600))
+    local minutes=$(( (duration % 3600) / 60 ))
+    local seconds=$((duration % 60))
+    printf "%s (Running for %02d:%02d:%02d)\n" "$timer" $hours $minutes $seconds
+  done
+}
+
+scan_project_files() {
+  local folder="$1"
+  if [[ -z "$folder" ]]; then
+    folder=$(select_project)
+    if [[ -z "$folder" ]]; then
+      echo -e "${YELLOW}No project selected.${NC}"
+      return 1
+    fi
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo -e "${RED}Error: Project directory does not exist: ${folder}${NC}" >&2
+    return 1
+  fi
+  echo -e "${GREEN}Scanning project files for TODO keywords in ${folder}:${NC}"
+  local results=()
+  for keyword in "${TODO_KEYWORDS[@]}"; do
+    mapfile -t keyword_results < <(grep -rni --exclude-dir="${ARCHIVE_FOLDER}" --exclude="*${DEFAULT_TODO_EXTENSION}" "$keyword" "$folder" 2>/dev/null)
+    for result in "${keyword_results[@]}"; do
+      results+=("$keyword|$result")
+    done
+  done
+  if [[ ${#results[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}No TODO keywords found in project files.${NC}"
+    return 0
+  fi
+  echo -e "${GREEN}Found TODOs:${NC}"
+  for result in "${results[@]}"; do
+    local keyword=$(echo "$result" | cut -d'|' -f1)
+    local details=$(echo "$result" | cut -d'|' -f2-)
+    local file=$(echo "$details" | cut -d':' -f1)
+    local line=$(echo "$details" | cut -d':' -f2)
+    local content=$(echo "$details" | cut -d':' -f3-)
+    printf "%s:%d: %s: %s\n" "$file" "$line" "$keyword" "$content"
+  done
+}
+
+# --- Main Command Handlers ---
+
+handle_project_commands() {
+  local subcommand="$1"
+  shift
+  case "$subcommand" in
+    add)
+      add_project "$@"
+      ;;
+    list)
+      list_projects
+      ;;
+    select)
+      local project
+      project=$(select_project)
+      if [[ -n "$project" ]]; then
+        set_last_project "$project"
+        echo -e "${GREEN}Selected project:${NC} ${project}"
+      fi
+      ;;
+    remove)
+      remove_project "$@"
+      ;;
+    *)
+      echo -e "${RED}Unknown project subcommand: ${subcommand}${NC}"
+      echo -e "Usage: $0 project {add|list|select|remove} [args]"
+      exit 1
+      ;;
+  esac
+}
+
+handle_cheatsheet_commands() {
+  local subcommand="$1"
+  shift
+  case "$subcommand" in
+    create)
+      create_cheatsheet "$@"
+      ;;
+    edit)
+      edit_cheatsheet "$@"
+      ;;
+    search)
+      search_cheatsheet_commands "$@"
+      ;;
+    history)
+      search_cheatsheet_history "$@"
+      ;;
+    *)
+      echo -e "${RED}Unknown cheatsheet subcommand: ${subcommand}${NC}"
+      echo -e "Usage: $0 cheatsheet {create|edit|search|history} [args]"
+      exit 1
+      ;;
+  esac
+}
+
+handle_timer_commands() {
+  local subcommand="$1"
+  shift
+  case "$subcommand" in
+    start)
+      start_timer "$@"
+      ;;
+    stop)
+      stop_timer "$@"
+      ;;
+    list)
+      list_timers
+      ;;
+    *)
+      echo -e "${RED}Unknown timer subcommand: ${subcommand}${NC}"
+      echo -e "Usage: $0 timer {start|stop|list} [args]"
+      exit 1
+      ;;
+  esac
+}
+
+handle_config_commands() {
+  local subcommand="$1"
+  shift
+  case "$subcommand" in
+    edit)
+      edit_config
+      ;;
+    set-editor)
+      set_editor "$@"
+      ;;
+    enable-fzf)
+      enable_fzf
+      ;;
+    disable-fzf)
+      disable_fzf
+      ;;
+    enable-tmux)
+      enable_tmux
+      ;;
+    disable-tmux)
+      disable_tmux
+      ;;
+    *)
+      echo -e "${RED}Unknown config subcommand: ${subcommand}${NC}"
+      echo -e "Usage: $0 config {edit|set-editor|enable-fzf|disable-fzf|enable-tmux|disable-tmux} [args]"
+      exit 1
+      ;;
+  esac
+}
+
+# --- Main Script Logic ---
+
+CONFIG_FILE="${HOME}/.config/todo/config.json"
+LAST_PROJECT=""
+
+# Load configuration
+load_config_vars() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    echo '{"projects": [], "editor": "nvim", "use_fzf": 0, "use_tmux": 0}' > "$CONFIG_FILE"
+  fi
+  if command_exists jq; then
+    EDITOR=$(jq -r '.editor // "nvim"' "$CONFIG_FILE")
+    USE_FZF=$(jq -r '.use_fzf // 0' "$CONFIG_FILE")
+    USE_TMUX=$(jq -r '.use_tmux // 0' "$CONFIG_FILE")
+  fi
+}
+
+# Ensure timer directory exists
+mkdir -p "$TIMER_DIR"
+
+# Load configuration
+load_config_vars
+
+# Parse command-line arguments
+if [[ $# -eq 0 ]]; then
+  echo -e "${BLUE}${BOLD}=== Todo Manager ===${NC}"
+  echo -e "Usage: $0 <command> [subcommand] [args]"
+  echo -e "${YELLOW}Commands:${NC}"
+  echo -e "  project     Manage projects (add, list, select, remove)"
+  echo -e "  todo        Manage TODOs (create, list, open, done, tags, archive, delete, search, search-tags, stats, copy-title, backup, restore, toggle-checkbox)"
+  echo -e "  cheatsheet  Manage cheatsheets (create, edit, search, history)"
+  echo -e "  timer       Manage timers (start, stop, list)"
+  echo -e "  config      Manage configuration (edit, set-editor, enable-fzf, disable-fzf, enable-tmux, disable-tmux)"
+  echo -e "  dashboard   Show project dashboard"
+  echo -e "  scan        Scan project files for TODO keywords"
+  exit 0
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  project)
+    handle_project_commands "$@"
+    ;;
+  todo)
+    case "$1" in
+      create)
+        shift
+        create_todo "$@"
+        ;;
+      list)
+        shift
+        list_todos "$@"
+        ;;
+      open)
+        shift
+        open_todo "$@"
+        ;;
+      done)
+        shift
+        mark_todo_done "$@"
+        ;;
+      tags)
+        shift
+        edit_todo_tags "$@"
+        ;;
+      archive)
+        shift
+        archive_todo "$@"
+        ;;
+      delete)
+        shift
+        delete_todo "$@"
+        ;;
+      search)
+        shift
+        search_todos "$@"
+        ;;
+      search-tags)
+        shift
+        search_todos_by_tags "$@"
+        ;;
+      stats)
+        shift
+        show_stats "$@"
+        ;;
+      copy-title)
+        shift
+        copy_todo_title_to_clipboard "$@"
+        ;;
+      backup)
+        shift
+        backup_todos "$@"
+        ;;
+      restore)
+        shift
+        restore_todos "$@"
+        ;;
+      toggle-checkbox)
+        shift
+        toggle_checkbox "$@"
+        ;;
+      *)
+        echo -e "${RED}Unknown todo subcommand: ${1}${NC}"
+        echo -e "Usage: $0 todo {create|list|open|done|tags|archive|delete|search|search-tags|stats|copy-title|backup|restore|toggle-checkbox} [args]"
+        exit 1
+        ;;
+    esac
+    ;;
+  cheatsheet)
+    handle_cheatsheet_commands "$@"
+    ;;
+  timer)
+    handle_timer_commands "$@"
+    ;;
+  config)
+    handle_config_commands "$@"
+    ;;
+  dashboard)
+    show_dashboard
+    ;;
+  scan)
+    scan_project_files "$@"
+    ;;
+  *)
+    echo -e "${RED}Unknown command: ${command}${NC}"
+    echo -e "Usage: $0 {project|todo|cheatsheet|timer|config|dashboard|scan} [args]"
+    exit 1
+    ;;
+esac

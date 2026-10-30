@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""moflix-style-gen - regenerate the tinct moflix userstyle's colour overrides.
+
+moflix paints most of the site from --be-* variables (moflix.user.css maps
+those to tinct live), but ~177 of its own .moflix-* components hard-code a
+navy/blue palette. This reads moflix's current stylesheet, finds every rule
+using one of those colours, and writes the same rule with the matching tinct
+--m3-* role, keeping alpha and gradient shapes. Re-run when moflix ships new CSS.
+
+  moflix-style-gen                 # fetch the live CSS, rewrite the style
+  moflix-style-gen --css main.css  # use a local copy instead
+  moflix-style-gen --style ~/.local/share/stylus-themes/sto.user.css --css a.css b.css
+                                   # any site with a navy/blue palette: its saved CSS, its style
+"""
+import argparse, re, sys, urllib.request
+from pathlib import Path
+
+STYLE = Path.home() / ".local/share/stylus-themes/moflix.user.css"
+SITE = "https://moflix-stream.xyz/"
+UA = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+BEGIN, END = "/* GENERATED-OVERRIDES-START", "GENERATED-OVERRIDES-END */"
+
+# Hard-coded moflix colours -> tinct role (fallback hex in the role's own var()).
+ROLES = {
+    # surfaces, darkest first
+    "0b141e": "surface", "0e1722": "surface", "0e1721": "surface", "0f172a": "surface",
+    "101a25": "surface-container-low", "111b28": "surface-container-low", "111c28": "surface-container-low",
+    "14202d": "surface-container", "152331": "surface-container", "343842": "outline-variant",
+    # accents
+    "2196cd": "primary", "2ea8ff": "primary", "38bdf8": "primary", "076b98": "primary-container",
+    "7dd3fc": "primary", "2294d2": "primary",
+    # text
+    "e5edf5": "text", "dce5ef": "text", "edf2fa": "text", "cfd8e3": "text-variant",
+    "91a5bc": "text-variant", "9caec0": "text-variant", "9ec8e4": "text-variant",
+    # tinted lines
+    "b3cee5": "outline-variant", "9cbede": "outline-variant", "64748b": "outline-variant",
+}
+PROPS = r"(background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-color)?|color|outline(?:-color)?|box-shadow|fill|stroke|text-decoration-color|caret-color)"
+
+
+def classify(hex6, prop=""):
+    """moflix's palette by hue and lightness, so every navy/blue variant is caught,
+    not just the ones listed above. Neutral greys, reds, greens etc. stay as they are."""
+    import colorsys
+    r, g, b = (int(hex6[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    h, l, sat = colorsys.rgb_to_hls(r, g, b)
+    h *= 360
+    cool = 185 <= h <= 235
+    if cool and l < 0.24 and sat > 0.12:            # navy surfaces
+        return "surface" if l < 0.085 else "surface-container-low" if l < 0.13 else "surface-container"
+    if cool and sat > 0.5 and 0.3 <= l <= 0.75:      # accent blues
+        return "primary"
+    if cool and l >= 0.55:                           # light blue-greys: lines in borders, text elsewhere
+        if "border" in prop or "outline" in prop or "shadow" in prop:
+            return "outline-variant"
+        return "text" if l >= 0.85 else "text-variant"
+    return None
+
+
+def role(hex6, alpha=None, prop=""):
+    r = ROLES.get(hex6.lower()) or classify(hex6, prop)
+    if not r:
+        return None
+    v = f"var(--m3-{r})"
+    if alpha is None or alpha >= 0.999:
+        return v
+    return f"color-mix(in srgb, {v} {round(alpha * 100, 1)}%, transparent)"
+
+
+def swap(value, prop=""):
+    def hexrep(m):
+        h = m.group(1).lower()
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        a = int(h[6:8], 16) / 255 if len(h) == 8 else None
+        return role(h[:6], a, prop) or m.group(0)
+
+    def rgbrep(m):
+        r, g, b = (int(x) for x in m.group(1, 2, 3))
+        a = float(m.group(4)) if m.group(4) else None
+        return role(f"{r:02x}{g:02x}{b:02x}", a, prop) or m.group(0)
+
+    out = re.sub(r"#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b", hexrep, value)
+    return re.sub(r"rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)\s*(?:[,/]\s*([\d.]+))?\s*\)", rgbrep, out)
+
+
+def overrides(css):
+    rules = []
+    # Plain rules only; @media blocks are flattened by taking their inner rules.
+    for m in re.finditer(r"([^{}@]+)\{([^{}]*)\}", css):
+        sel, body = m.group(1).strip(), m.group(2)
+        # moflix runs dark; its light-theme rules use the navy as text and would come out inverted.
+        if "not(.dark)" in sel:
+            continue
+        decls = []
+        # A whole property only: "--tw-ring-color:" must not read as "color:" (that once
+        # made every element's text half transparent through Tailwind's "*" base rule).
+        for d in re.finditer(r"(?<![\w-])" + PROPS + r"\s*:\s*([^;]+)", body):
+            new = swap(d.group(2), d.group(1))
+            if new != d.group(2):
+                decls.append(f"{d.group(1)}: {re.sub(r'\s*!important', '', new).strip()} !important")
+        if decls and sel and not sel.startswith(("from", "to", "0%", "100%")):
+            rules.append(f"    {sel} {{ {'; '.join(decls)}; }}")
+    return rules
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
+    ap.add_argument("--css", nargs="+", help="local CSS files instead of fetching moflix's")
+    ap.add_argument("--style", type=Path, default=STYLE, help="the .user.css to rewrite (default: moflix)")
+    a = ap.parse_args()
+    if a.css:
+        css = "\n".join(Path(f).read_text() for f in a.css)
+    else:
+        req = lambda u: urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": UA}), timeout=20).read().decode()
+        html = req(SITE)
+        base = "https://moflix-stream.xyz/build/assets/"
+        hrefs = set(re.findall(r"https://moflix-stream\.xyz/build/assets/[\w-]+\.css", html))
+        if not hrefs:
+            sys.exit("moflix-style-gen: no stylesheet link on the moflix page")
+        # The site's pages load more CSS on demand (code splitting): the names are in main-*.js.
+        for js in set(re.findall(r"https://moflix-stream\.xyz/build/assets/main-[\w-]+\.js", html)):
+            for name in re.findall(r"\./([\w.-]+\.css)", req(js)):
+                if not re.search(r"admin|swagger|api-docs", name):
+                    hrefs.add(base + name)
+        css = "\n".join(req(h) for h in sorted(hrefs))
+        print("stylesheets:", ", ".join(h.rsplit("/", 1)[1] for h in sorted(hrefs)))
+    rules = overrides(css)
+    style = a.style.read_text()
+    block = (f"{BEGIN} (moflix-style-gen: {len(rules)} rules, hard-coded moflix colours -> tinct roles) */\n"
+             + "\n".join(rules) + f"\n    /* {END}")
+    if BEGIN in style:
+        style = re.sub(re.escape(BEGIN) + r".*?" + re.escape(END), lambda _: block, style, flags=re.S)
+    else:
+        # Inside the @-moz-document block, before its closing brace.
+        i = style.rstrip().rfind("}")
+        style = style[:i] + "\n    " + block + "\n" + style[i:]
+    # Bump the patch version so managers that compare versions take it.
+    style = re.sub(r"(@version\s+\d+\.\d+\.)(\d+)", lambda m: m.group(1) + str(int(m.group(2)) + 1), style, count=1)
+    a.style.write_text(style)
+    print(f"{a.style}: {len(rules)} override rules")
+
+
+if __name__ == "__main__":
+    main()

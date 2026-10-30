@@ -1,0 +1,4 @@
+export XDG_SESSION_DESKTOP=awesome
+export XDG_CURRENT_DESKTOP=awesome
+export XCURSOR_THEME=Graphite
+export XCURSOR_SIZE=32

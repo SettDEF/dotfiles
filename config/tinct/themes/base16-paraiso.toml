@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Paraiso"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2f1e2e"
+grey2 = "#41323f"
+grey3 = "#4f424c"
+grey4 = "#776e71"
+grey5 = "#8d8687"
+grey6 = "#a39e9b"
+grey7 = "#b9b6b0"
+grey8 = "#e7e9db"
+red1 = "#ef6155"
+orange1 = "#f99b15"
+yellow1 = "#fec418"
+green1 = "#48b685"
+cyan1 = "#5bc4bf"
+blue1 = "#06b6ef"
+purple1 = "#815ba4"
+red2 = "#e96ba8"
+
+[roles]
+background = "#2f1e2e"
+foreground = "#e7e9db"
+primary = "#ef6155"

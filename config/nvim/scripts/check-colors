@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Headless colour sanity check for this nvim config: prints key highlight
+# backgrounds and fails if the statusline/panels disagree with the editor, or if
+# the colors.hl cache holds a mutated/stale entry. Lets Claude verify colour
+# work without a screenshot. Usage: scripts/check-colors [-h]
+set -u
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then sed -n '2,5p' "$0" | sed 's/^# \?//'; exit 0; fi
+tmp=$(mktemp --suffix=.lua); trap 'rm -f "$tmp"' EXIT
+cat > "$tmp" <<'LUA'
+local out, bad = {}, 0
+local function bg(n)
+  local h = vim.api.nvim_get_hl(0, { name = n, link = false })
+  return h.bg and string.format("#%06x", h.bg) or "none"
+end
+local function check(ok, msg) if not ok then bad = bad + 1; out[#out + 1] = "FAIL " .. msg end end
+vim.defer_fn(function()
+  local normal = bg("Normal")
+  out[#out + 1] = "Normal " .. normal
+  for _, g in ipairs({ "StatusLine", "StatusLineNC", "TabLineFill", "CustomTabline", "CustomTablineFill",
+                       "NeoTreeNormal", "NeoTreeNormalNC", "EdgyNormal" }) do
+    local b = bg(g); out[#out + 1] = g .. " " .. b
+    check(b == normal, g .. " bg " .. b .. " != Normal " .. normal)
+  end
+  -- cache must mirror live highlights (a mutated cache paints stray colours)
+  local cc = require("alex.core.colors")
+  for _, g in ipairs({ "CustomTabline", "CustomTablineFill", "StatusLine" }) do
+    local c = cc.hl[g].bg
+    local live = vim.api.nvim_get_hl(0, { name = g, link = false }).bg
+    check(type(c) == type(live) and c == live, "colors.hl." .. g .. ".bg cache=" .. tostring(c) .. " live=" .. tostring(live))
+  end
+  -- no statusline segment may use a bg that is neither NONE nor a known pill colour
+  local r = vim.api.nvim_eval_statusline(vim.o.statusline, { highlights = true, maxwidth = 300 })
+  for _, h in ipairs(r.highlights) do
+    local b = bg(h.group)
+    if b == "#161616" then check(false, "statusline group " .. h.group .. " has stray bg " .. b) end
+  end
+  io.stdout:write(table.concat(out, "\n") .. "\n" .. (bad == 0 and "OK" or (bad .. " problem(s)")) .. "\n")
+  vim.cmd(bad == 0 and "qa!" or "cquit")
+end, 3000)
+LUA
+nvim --headless -c "luafile $tmp" 2>&1

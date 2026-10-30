@@ -1,0 +1,26 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Everforest Dark"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2d353b"
+grey2 = "#343f44"
+grey3 = "#3d484d"
+grey4 = "#475258"
+grey5 = "#4f585e"
+grey6 = "#56635f"
+grey7 = "#9da9a0"
+yellow1 = "#d3c6aa"
+red1 = "#e67e80"
+orange1 = "#e69875"
+yellow2 = "#dbbc7f"
+green1 = "#a7c080"
+green2 = "#83c092"
+cyan1 = "#7fbbb3"
+red2 = "#d699b6"
+
+[roles]
+background = "#2d353b"
+foreground = "#9da9a0"
+primary = "#e67e80"

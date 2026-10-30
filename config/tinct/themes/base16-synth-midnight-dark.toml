@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Synth Midnight Dark"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#040404"
+grey2 = "#141414"
+grey3 = "#242424"
+purple1 = "#61507a"
+grey4 = "#bfbbbf"
+grey5 = "#dfdbdf"
+grey6 = "#efebef"
+grey7 = "#fffbff"
+red1 = "#b53b50"
+orange1 = "#e4600e"
+yellow1 = "#dae84d"
+green1 = "#06ea61"
+cyan1 = "#7cede9"
+blue1 = "#03aeff"
+purple2 = "#ea5ce2"
+orange2 = "#9d4d0e"
+
+[roles]
+background = "#040404"
+foreground = "#fffbff"
+primary = "#06ea61"

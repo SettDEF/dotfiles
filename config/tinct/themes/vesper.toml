@@ -1,0 +1,23 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Vesper"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#101010"
+grey2 = "#161616"
+grey3 = "#1c1c1c"
+grey4 = "#232323"
+grey5 = "#282828"
+grey6 = "#505050"
+grey7 = "#65737e"
+grey8 = "#a0a0a0"
+grey9 = "#ffffff"
+red1 = "#ff8080"
+orange1 = "#ffc799"
+cyan1 = "#99ffe4"
+
+[roles]
+background = "#101010"
+foreground = "#ffffff"
+primary = "#ff8080"

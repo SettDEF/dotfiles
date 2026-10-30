@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Railscasts"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2b2b2b"
+grey2 = "#272935"
+grey3 = "#3a4055"
+blue1 = "#5a647e"
+grey4 = "#d4cfc9"
+grey5 = "#e6e1dc"
+grey6 = "#f4f1ed"
+grey7 = "#f9f7f3"
+red1 = "#da4939"
+orange1 = "#cc7833"
+orange2 = "#ffc66d"
+green1 = "#a5c261"
+green2 = "#519f50"
+blue2 = "#6d9cbe"
+purple1 = "#b6b3eb"
+orange3 = "#bc9458"
+
+[roles]
+background = "#2b2b2b"
+foreground = "#f9f7f3"
+primary = "#da4939"

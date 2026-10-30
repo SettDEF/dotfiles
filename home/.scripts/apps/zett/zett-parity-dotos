@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# zett-parity-dotos: zett's parity tables (docs/parity, from scripts/parity.sh) as a Dotos page,
+# with one history row per day, so the progress shows in Dotos without opening the repo.
+#
+#   zett-parity-dotos          after scripts/parity.sh: writes ~/.local/share/dotos/pages/zett-parity.md
+#   ZETT_REPO=…                the zett checkout (default /mnt/storage/dev/projects/zett)
+set -euo pipefail
+
+repo=${ZETT_REPO:-/mnt/storage/dev/projects/zett}
+p=$repo/docs/parity
+page=$HOME/.local/share/dotos/pages/zett-parity.md
+hist=$HOME/.local/state/zett/parity-history.tsv
+[ -d "$p" ] || { echo "zett-parity-dotos: no $p (run scripts/parity.sh first)" >&2; exit 1; }
+mkdir -p "$(dirname "$hist")" "$(dirname "$page")"
+
+# table rows "| ✓ |" or list items "- ✓"; total = every marked row
+count() { grep -cE "^(\| |- )$2" "$p/$1.md" || true; }
+total() { grep -cE '^(\| |- )[✓◐·] ' "$p/$1.md" || true; }
+
+parts=(nvim-normal-keys nvim-ex-commands nvim-options nvim-api emacs-keys emacs-commands)
+names=("Neovim Normal-mode keys" "Neovim Ex commands" "Neovim options" "Neovim API (vim.api, vim.fn)" "Emacs default keys" "Emacs commands")
+today=$(date +%F)
+row=$today
+for f in "${parts[@]}"; do row+=$'\t'"$(count "$f" ✓)/$(total "$f")"; done
+# one row per day: today's replaces an earlier one from today
+{ [ -f "$hist" ] && grep -v "^$today"$'\t' "$hist"; echo "$row"; } | sort > "$hist.new" && /usr/bin/mv -f "$hist.new" "$hist"
+
+{
+    echo "---"
+    echo "title: zett parity"
+    echo "tags: zett, parity"
+    echo "---"
+    echo "# zett parity"
+    echo
+    echo "How much of Neovim and Emacs zett has. Updated $(date '+%Y-%m-%d %H:%M') from \`docs/parity\` in the zett repo."
+    echo
+    echo "| part | done | of | |"
+    echo "|---|---|---|---|"
+    for i in "${!parts[@]}"; do
+        f=${parts[$i]}; d=$(count "$f" ✓); t=$(total "$f"); k=$(count "$f" ◐)
+        pc=$(( t > 0 ? d * 100 / t : 0 ))
+        extra=""; [ "$k" -gt 0 ] && extra=" · $k more accepted, doing nothing yet"
+        echo "| ${names[$i]} | $d | $t | $pc%$extra |"
+    done
+    echo
+    echo "## History"
+    echo
+    echo "| day | normal keys | Ex | options | API | Emacs keys | Emacs commands |"
+    echo "|---|---|---|---|---|---|---|"
+    sort -r "$hist" | while IFS=$'\t' read -r day a b c d e f; do echo "| $day | $a | $b | $c | $d | $e | $f |"; done
+} > "$page.new"
+/usr/bin/mv -f "$page.new" "$page"
+
+# and on the board: a "zett parity" task with the numbers in its notes and the page linked
+if command -v dotos >/dev/null; then
+    note=""
+    for i in "${!parts[@]}"; do
+        f=${parts[$i]}; d=$(count "$f" ✓); t=$(total "$f")
+        note+=$(printf '%-30s %5s / %-5s %3s%%' "${names[$i]}" "$d" "$t" "$(( t > 0 ? d * 100 / t : 0 ))")$'\n'
+    done
+    note+="updated $(date '+%Y-%m-%d %H:%M') · the full table and its history: Pages › zett parity"
+    id=$(dotos list --all --json 2>/dev/null | jq -r '.[] | select(.summary == "zett parity") | .uid' | head -1)
+    [ -n "$id" ] || id=$(DOTOS_WHO=ai dotos capture "zett parity +zett #parity >doing" --json 2>/dev/null | jq -r '.uid // empty')
+    [ -n "$id" ] && DOTOS_WHO=ai dotos set "$id" "notes=$note" project=zett tags=parity "link+=$page" >/dev/null
+fi
+echo "$page"

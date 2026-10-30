@@ -1,0 +1,36 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Tender"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#282828"
+grey2 = "#eeeeee"
+grey3 = "#dadada"
+grey4 = "#bbbbbb"
+grey5 = "#999999"
+grey6 = "#666666"
+grey7 = "#444444"
+grey8 = "#323232"
+grey9 = "#202020"
+grey10 = "#1d1d1d"
+grey11 = "#000000"
+grey12 = "#ffffff"
+red1 = "#f43753"
+red2 = "#c5152f"
+red3 = "#79313c"
+yellow1 = "#ffc24b"
+yellow2 = "#715b2f"
+yellow3 = "#c9d05c"
+yellow4 = "#9faa00"
+yellow5 = "#6a6b3f"
+yellow6 = "#d3b987"
+cyan1 = "#b3deef"
+cyan2 = "#73cef4"
+blue1 = "#44778d"
+blue2 = "#335261"
+
+[roles]
+background = "#282828"
+foreground = "#ffffff"
+primary = "#f43753"

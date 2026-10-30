@@ -1,0 +1,109 @@
+#!/bin/bash
+
+# 1-hour workout script: 10x 30s, 2x 45s, with smart 10s rests, rare 30s rests, and rest-is-over sound
+
+# Configuration
+WORK_SOUND="$HOME/Downloads/mixkit-happy-bell-alert-601.wav"      # Work intervals
+REST_10_SOUND="$HOME/Downloads/mixkit-air-woosh-1489.wav"        # 10-second rests
+REST_30_SOUND="$HOME/Downloads/806539__logicogonist__cheapgong-fake-1d-shorter.wav"  # 30-second rests
+REST_OVER_SOUND="$HOME/Downloads/mixkit-achievement-bell-600.wav"   # Rest-is-over signal
+PHASE_SOUND="$HOME/Downloads/mixkit-vacuum-swoosh-transition-1465.wav"  # Warm-up/cool-down
+PLAYER="mpv"  # Sound player
+WARM_UP=300      # Warm-up (seconds)
+WORK_30=30       # 30-second work
+REST_10=10       # 10-second rest
+REST_30=30       # 30-second rest
+ROUNDS_30=10     # 10x 30s intervals
+FILLER_ROUNDS=69 # Filler intervals
+WORK_45=45       # 45-second work
+ROUNDS_45=2      # 2x 45s intervals
+COOL_DOWN=60     # Cool-down (seconds)
+EXERCISES=("Push-ups" "Squats" "Plank" "Jumping Jacks" "Burpees")
+
+# Check player and sound files
+if ! command -v "$PLAYER" &> /dev/null; then
+    echo "Error: $PLAYER not found. Install mpv."
+    echo "Arch: sudo pacman -S mpv"
+    echo "Ubuntu: sudo apt install mpv"
+    exit 1
+fi
+for file in "$WORK_SOUND" "$REST_10_SOUND" "$REST_30_SOUND" "$REST_OVER_SOUND" "$PHASE_SOUND"; do
+    if [ ! -f "$file" ]; then
+        echo "Error: Sound file $file not found."
+        echo "Expected at $file"
+        echo "Download from mixkit.co or freesound.org."
+        exit 1
+    fi
+done
+
+# Trap Ctrl+C
+trap 'echo -e "\nWorkout stopped at $(date). Great job!"; exit 0' SIGINT
+
+# Play sound function
+play_and_sleep() {
+    local phase=$1
+    local duration=$2
+    local sound=$3
+    local total_seconds=$4
+    echo "$phase ($duration seconds) [$(date '+%H:%M:%S')]"
+    $PLAYER --no-video --really-quiet --no-cache "$sound"
+    sleep "$duration"
+}
+
+# Calculate total workout time for verification
+total_seconds=0
+total_seconds=$((total_seconds + WARM_UP))
+total_seconds=$((total_seconds + ROUNDS_30 * WORK_30 + (ROUNDS_30 - 2) * REST_10 + REST_30))
+total_seconds=$((total_seconds + FILLER_ROUNDS * WORK_30 + (FILLER_ROUNDS - 14) * REST_10 + 3 * REST_30))
+total_seconds=$((total_seconds + ROUNDS_45 * WORK_45 + (ROUNDS_45 - 1) * REST_30))
+total_seconds=$((total_seconds + COOL_DOWN))
+if [ "$total_seconds" -ne 3600 ]; then
+    echo "Error: Workout duration is $total_seconds seconds, not 3600."
+    exit 1
+fi
+
+# Workout
+echo "Starting 1-hour workout at $(date '+%H:%M:%S')"
+echo "Structure: 10x 30s, filler, 2x 45s, total 3600 seconds"
+
+# Warm-up
+play_and_sleep "Warm-up" "$WARM_UP" "$PHASE_SOUND" "$total_seconds"
+
+# 10x 30-second intervals
+for ((round=1; round<=ROUNDS_30; round++)); do
+    play_and_sleep "Round $round: ${EXERCISES[$(( (round-1) % ${#EXERCISES[@]} ))]}" "$WORK_30" "$WORK_SOUND" "$total_seconds"
+    if [ "$round" -eq 5 ]; then
+        play_and_sleep "Rest (long)" "$REST_30" "$REST_30_SOUND" "$total_seconds"
+        $PLAYER --no-video --really-quiet --no-cache "$REST_OVER_SOUND"
+    elif [ "$round" -lt "$ROUNDS_30" ]; then
+        play_and_sleep "Rest" "$REST_10" "$REST_10_SOUND" "$total_seconds"
+        $PLAYER --no-video --really-quiet --no-cache "$REST_OVER_SOUND"
+    fi
+done
+
+# Filler intervals
+for ((round=1; round<=FILLER_ROUNDS; round++)); do
+    play_and_sleep "Filler Round $round: ${EXERCISES[$(( (round-1) % ${#EXERCISES[@]} ))]}" "$WORK_30" "$WORK_SOUND" "$total_seconds"
+    if [ "$round" -eq 20 ] || [ "$round" -eq 40 ] || [ "$round" -eq 60 ]; then
+        play_and_sleep "Rest (long)" "$REST_30" "$REST_30_SOUND" "$total_seconds"
+        $PLAYER --no-video --really-quiet --no-cache "$REST_OVER_SOUND"
+    elif [ "$round" -lt "$FILLER_ROUNDS" ]; then
+        play_and_sleep "Rest" "$REST_10" "$REST_10_SOUND" "$total_seconds"
+        $PLAYER --no-video --really-quiet --no-cache "$REST_OVER_SOUND"
+    fi
+done
+
+# 2x 45-second intervals
+for ((round=1; round<=ROUNDS_45; round++)); do
+    play_and_sleep "Long Round $round: High Intensity" "$WORK_45" "$WORK_SOUND" "$total_seconds"
+    if [ "$round" -lt "$ROUNDS_45" ]; then
+        play_and_sleep "Rest (long)" "$REST_30" "$REST_30_SOUND" "$total_seconds"
+        $PLAYER --no-video --really-quiet --no-cache "$REST_OVER_SOUND"
+    fi
+done
+
+# Cool-down
+play_and_sleep "Cool-down" "$COOL_DOWN" "$PHASE_SOUND" "$total_seconds"
+
+echo "Workout completed at $(date '+%H:%M:%S')! Great job!"
+$PLAYER --no-video --really-quiet --no-cache "$PHASE_SOUND"

@@ -1,0 +1,863 @@
+#!/usr/bin/env python3
+"""media - drive media in tela-zen tabs from the desktop.
+
+Two clients long-poll it for commands and post what plays: the browser
+(TelaMediaBridge.sys.mjs, every tab with media, any site) and the YTM adapter
+(userscripts/media-ytm.user.js: open, lyrics). TASKS.md #59. No focus needed.
+
+  media serve                  run the bridge (media-bridge.service does this)
+  media list [--json]          every tab with media (from the browser)
+  media <tab> <cmd> [arg]      tab = list number, id, or part of the site
+                               cmd = toggle play pause stop next prev mute
+                                     seek <s>, forward|back [s]
+                                     volume <0-100>, rate <0.25-4>
+  media status [--json]        what plays (the YTM tab, else the playing tab)
+  media toggle|play|pause|next|prev   the YTM tab, else the playing tab
+  media open <url|video-id>    play a YouTube video/playlist in the YTM tab
+  media volume <0-100>         the YTM tab, else the playing tab
+  media mode song|video        YT Music's own Song / Video switch
+  media seek <seconds>         the YTM tab, else the playing tab
+  media external [--player reel|mpv|custom] [--referer R] [--cookies F] [--start S]
+               [--command CMD] <url>
+                               play a page's video in another app (tela-zen's "Open in…");
+                               site players go through yt-dlp
+  media sleep <min>|off        pause after <min> minutes, fading out the last one;
+                               without a number: time left
+
+Loopback only (127.0.0.1:8788, MEDIA_PORT overrides). The userscript is served
+at http://127.0.0.1:8788/media-ytm.user.js so MonkeyStyles can update from it.
+"""
+import json, os, re, sys, threading, time, urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+
+PORT = int(os.environ.get("MEDIA_PORT", os.environ.get("YTM_PORT", "8788")))
+BASE = f"http://127.0.0.1:{PORT}"
+USERSCRIPT = os.environ.get("YTM_USERSCRIPT", os.path.expanduser(
+    "/mnt/storage/dev/projects/tela-zen/userscripts/media-ytm.user.js"))
+COMMANDS = {"toggle", "play", "pause", "next", "prev", "open", "volume", "mode", "seek"}
+
+
+# page -> the page after it ({url, label, name}), from watch-tracker; in memory only
+NEXT = {}
+# the page watch-tracker tracks now: {page, name, at}
+NOW = {}
+
+
+def page_key(url):
+    """A page without its query or fragment, so tracking parameters do not split one page in two."""
+    u = urlparse(url)
+    return f"{u.netloc.lower().removeprefix('www.')}{u.path.rstrip('/')}"
+
+
+class Bridge:
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.queue = []      # [(id, cmd, arg, tab)]
+        self.seq = 0
+        self.delivered = 0   # highest id a page has fetched
+        self.state = {}
+        self.seen = 0.0      # last time a page polled or posted (liveness)
+        self.state_at = 0.0  # when `state` arrived; its position was true then
+
+    def push(self, cmd, arg, tab=None):
+        with self.cv:
+            self.seq += 1
+            self.queue.append((self.seq, cmd, arg, tab))
+            self.queue = self.queue[-20:]
+            self.cv.notify_all()
+            return self.seq
+
+    def poll(self, after, timeout=25):
+        end = time.time() + timeout
+        with self.cv:
+            self.seen = time.time()
+            while True:
+                out = [q for q in self.queue if q[0] > after]
+                left = end - time.time()
+                if out or left <= 0:
+                    break
+                self.cv.wait(left)
+            self.seen = time.time()
+            if out:
+                self.delivered = max(self.delivered, out[-1][0])
+                self.cv.notify_all()
+            return out
+
+    def wait_delivered(self, cid, timeout):
+        end = time.time() + timeout
+        with self.cv:
+            while self.delivered < cid and time.time() < end:
+                self.cv.wait(end - time.time())
+            return self.delivered >= cid
+
+
+B = Bridge()   # the YTM adapter (userscript)
+T = Bridge()   # the browser: every tab with media (TelaMediaBridge.sys.mjs)
+TAB_COMMANDS = {"toggle", "play", "pause", "stop", "next", "prev", "seek", "forward", "back", "mute",
+                "volume", "rate"}
+
+
+def tabs_now():
+    with T.cv:
+        return T.state.get("tabs", []) if time.time() - T.seen < 35 else []
+
+
+def as_state(t):
+    """A browser tab in the shape /state has always had."""
+    return {k: t.get(k) for k in ("playing", "title", "artist", "album", "artUrl", "position",
+                                   "duration", "url", "volume")} | {"videoId": None,
+                                                          "lyrics": None, "tab": t["id"], "site": t.get("site")}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, body, ctype="application/json"):
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(n) or b"{}")
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        q = parse_qs(u.query)
+        if u.path in ("/poll", "/tabs/poll"):
+            # Starting at -1 means "only commands queued from now on", so a
+            # reloaded page does not replay old ones.
+            br = T if u.path == "/tabs/poll" else B
+            after = int(q.get("after", ["-1"])[0])
+            if after < 0:
+                return self._send(200, {"after": br.seq, "commands": []})
+            cmds = br.poll(after)
+            return self._send(200, {"after": cmds[-1][0] if cmds else after,
+                                    "commands": [{"id": i, "cmd": c, "arg": a, "tab": t} for i, c, a, t in cmds]})
+        if u.path == "/sleep":
+            return self._send(200, sleep_state())
+        if u.path == "/now":
+            # the page watch-tracker tracks right now (reel falls back to its mirrors when a hoster fails)
+            return self._send(200, NOW if NOW and time.time() - NOW.get("at", 0) < 6 * 3600 else {})
+        if u.path == "/next":
+            # what comes after a page, as watch-tracker last said (reel's "Up next")
+            return self._send(200, NEXT.get(page_key(q.get("page", [""])[0])) or {})
+        if u.path == "/watch":
+            # watch-tracker's history, for reel's "From the browser" (no CORS header: pages cannot read it)
+            try:
+                with open(WATCH_FILE, "rb") as f:
+                    return self._send(200, f.read(), "application/json")
+            except OSError:
+                return self._send(200, {"at": 0, "titles": {}})
+        if u.path == "/tabs":
+            with T.cv:
+                return self._send(200, {"connected": time.time() - T.seen < 35, "seen": T.state_at, "tabs": tabs_now()})
+        if u.path == "/state":
+            with B.cv:
+                connected = time.time() - B.seen < 35 and bool(B.state)
+                # seen: when the page last reported (s since the epoch), so a reader can move the position on
+                if connected:
+                    # seen = when this state (and its position) arrived; readers move the position on from it
+                    return self._send(200, {"connected": True, "seen": B.state_at, **B.state, **sleep_state()})
+            # No YTM adapter: the browser's playing tab, else its first tab with media.
+            tabs = tabs_now()
+            t = next((t for t in tabs if t.get("playing")), tabs[0] if tabs else None)
+            with T.cv:
+                return self._send(200, {"connected": True, "seen": T.state_at, **as_state(t), **sleep_state()} if t else {"connected": False, "seen": B.state_at, **sleep_state()})
+        m = re.fullmatch(r"/([\w.-]+\.user\.js)", u.path)
+        if m:
+            # Any userscript next to the YTM adapter, so MonkeyStyles can install and update it from here.
+            try:
+                with open(os.path.join(os.path.dirname(USERSCRIPT), m.group(1)), "rb") as f:
+                    return self._send(200, f.read(), "text/javascript")
+            except OSError:
+                return self._send(404, {"error": "userscript missing"})
+        self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        # Any website can POST text/plain to localhost without asking; a JSON
+        # content type forces a preflight this server never answers, so pages
+        # cannot drive it. Our clients (CLI, dock, scripts, browser) send JSON.
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self._send(415, {"error": "application/json only"})
+        try:
+            body = self._body()
+        except ValueError:
+            return self._send(400, {"error": "bad json"})
+        if u.path in ("/state", "/tabs"):
+            br = T if u.path == "/tabs" else B
+            with br.cv:
+                br.state = body
+                br.seen = br.state_at = time.time()
+            return self._send(200, {"ok": True})
+        if u.path == "/reel/open":
+            # "Open in reel" from media-view: the stream the browser's own player loaded, with the
+            # page it played on as referrer, played by reel from where the browser was
+            url, ref = str(body.get("url") or ""), str(body.get("referer") or "")
+            if not url.startswith("http"):
+                return self._send(400, {"error": "an http(s) link"})
+            import subprocess
+            cmd = ["reel"] + (["--referer", ref] if ref.startswith("http") else []) + ["--start", str(int(float(body.get("start") or 0))), url]
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return self._send(200, {"ok": True})
+        if u.path == "/reel/queue":
+            # "Queue in reel" from the browser: into the queue of the reel that is open (else it plays)
+            url, title = str(body.get("url") or ""), str(body.get("title") or "")[:120]
+            if not url.startswith("http"):
+                return self._send(400, {"error": "an http(s) link"})
+            import subprocess
+            r = subprocess.run(["reel", "--queue", url, title], capture_output=True, text=True, timeout=20)
+            return self._send(200, {"ok": r.returncode == 0, "said": (r.stdout or r.stderr).strip()[:200]})
+        if u.path == "/now":
+            # watch-tracker: the page being watched (its title too)
+            page = str(body.get("page") or "")
+            if page.startswith("http"):
+                NOW.clear(); NOW.update({"page": page, "name": str(body.get("name") or "")[:120], "at": time.time()})
+            return self._send(200, {"ok": True})
+        if u.path == "/next":
+            # watch-tracker: the page on now and the one after it
+            page, url = str(body.get("page") or ""), str(body.get("url") or "")
+            if page and url.startswith("http"):
+                NEXT[page_key(page)] = {"url": url, "label": str(body.get("label") or "Next")[:80], "name": str(body.get("name") or "")[:120]}
+                while len(NEXT) > 200:
+                    NEXT.pop(next(iter(NEXT)))
+            return self._send(200, {"ok": True})
+        if u.path == "/ocr":
+            # text from a picture (scribd-copy.user.js draws a selection in the page's own font,
+            # since the characters underneath are scrambled): {png: base64} -> {text}
+            import base64, subprocess
+            try:
+                png = base64.b64decode(body.get("png") or "", validate=False)
+                lang = body.get("lang") or "deu+eng"
+                # German and English (tessdata_fast) in ~/.local/share/tessdata when there; else the system's
+                env = dict(os.environ)
+                mine = os.path.expanduser("~/.local/share/tessdata")
+                if os.path.exists(os.path.join(mine, "deu.traineddata")):
+                    env["TESSDATA_PREFIX"] = mine
+                r = subprocess.run(["tesseract", "stdin", "stdout", "-l", lang, "--psm", "6"],
+                                   input=png, capture_output=True, timeout=30, env=env)
+                return self._send(200, {"text": r.stdout.decode("utf-8", "replace").strip()})
+            except Exception as e:
+                return self._send(500, {"error": str(e)})
+        if u.path == "/chess/sync":
+            # the chess app's library takes the user's finished chess.com games: fetched from
+            # chess.com's public API (the user's own games), each new one saved as its own PGN
+            return self._send(200, chess_sync(str(body.get("user") or "").strip().lower(), int(body.get("months") or 2)))
+        if u.path == "/wtlog":
+            # watch-tracker's trace (its debug switch): one line per step, page and player frames alike
+            with open(os.path.expanduser("~/.cache/watch-tracker.log"), "a") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {str(body.get('where', ''))[:40]:<28} {str(body.get('msg', ''))[:1500]}\n")
+            if body.get("png"):   # a picture a script drew (scribd-copy's selection), for a look at it
+                import base64
+                with open(os.path.expanduser("~/.cache/watch-tracker-last.png"), "wb") as f:
+                    f.write(base64.b64decode(body["png"]))
+            return self._send(200, {"ok": True})
+        if u.path == "/watch":
+            with WATCH_LOCK:
+                write_watch(merge_titles(read_watch().get("titles") or {}, body.get("titles") or {}))
+            return self._send(200, {"ok": True})
+        if u.path == "/progress":
+            # reel's position for a video watch-tracker knows (its url, or the page it was opened from)
+            try:
+                pos, dur = max(0.0, float(body.get("pos") or 0)), float(body.get("dur") or 0)
+            except (TypeError, ValueError):
+                return self._send(400, {"error": "pos and dur are seconds"})
+            if dur <= 0:
+                return self._send(400, {"error": "no duration"})
+            with WATCH_LOCK:
+                titles = read_watch().get("titles") or {}
+                ok = apply_progress(titles, body.get("url"), body.get("page"), pos, dur, int(time.time() * 1000))
+                if ok:
+                    write_watch(titles)
+            return self._send(200 if ok else 404, {"ok": ok} if ok else {"ok": False, "error": "no tracked video at that url"})
+        if u.path == "/sleep":
+            minutes = body.get("minutes")
+            return self._send(200, set_sleep(None if minutes in (None, 0, "off") else float(minutes)))
+        m = re.fullmatch(r"/tabs/([^/]+)/cmd", u.path)
+        if m:
+            cmd = body.get("cmd")
+            if cmd not in TAB_COMMANDS:
+                return self._send(400, {"error": f"unknown tab command {cmd!r}"})
+            if not any(t["id"] == m.group(1) for t in tabs_now()):
+                return self._send(404, {"ok": False, "error": f"no tab {m.group(1)} with media"})
+            cid = T.push(cmd, body.get("arg"), m.group(1))
+            ok = T.wait_delivered(cid, float(body.get("wait", 3)))
+            return self._send(200 if ok else 503, {"ok": ok} if ok else {"ok": False, "error": "browser not connected"})
+        if u.path == "/cmd":
+            cmd, arg = body.get("cmd"), body.get("arg")
+            if cmd not in COMMANDS:
+                return self._send(400, {"error": f"unknown command {cmd!r}"})
+            cid = B.push(cmd, arg)
+            ok = B.wait_delivered(cid, float(body.get("wait", 3)))
+            return self._send(200 if ok else 503,
+                              {"ok": ok} if ok else {"ok": False, "error": "no YouTube Music tab connected"})
+        self._send(404, {"error": "not found"})
+
+
+WATCH_FILE = os.path.expanduser("~/.local/state/media/watch.json")
+WATCH_LOCK = threading.Lock()   # POST /watch and /progress both read-modify-write the file
+
+
+def read_watch():
+    try:
+        with open(WATCH_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"at": 0, "titles": {}}
+
+
+def write_watch(titles):
+    os.makedirs(os.path.dirname(WATCH_FILE), exist_ok=True)
+    tmp = WATCH_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"at": time.time(), "titles": titles}, f)
+    os.replace(tmp, WATCH_FILE)
+
+
+def merge_ep(old, new):
+    """One episode in two copies: the higher pct, and the fields (state included) of the newer copy."""
+    if not old or not new:
+        return dict(old or new or {})
+    older, newer = (old, new) if (new.get("at") or 0) >= (old.get("at") or 0) else (new, old)
+    return {**older, **newer, "pct": max(old.get("pct") or 0, new.get("pct") or 0)}
+
+
+def merge_titles(old, new):
+    """The posted titles are the whole list (a removal stays removed); progress the file has further on is kept."""
+    out = {}
+    for key, t in new.items():
+        o = old.get(key)
+        if not o:
+            out[key] = t
+            continue
+        eps = dict(o.get("eps") or {})
+        for k, e in (t.get("eps") or {}).items():
+            eps[k] = merge_ep(eps.get(k), e)
+        newer_last = o.get("last") if ((o.get("last") or {}).get("at") or 0) > ((t.get("last") or {}).get("at") or 0) else t.get("last")
+        out[key] = {**o, **t, "eps": eps, "last": newer_last}
+    return out
+
+
+def canon(url, site=""):
+    """A page address as watch-tracker keys it: host without www/m, path, query."""
+    if not url or not isinstance(url, str):
+        return ""
+    if url.startswith("/"):
+        url = f"https://{site}{url}"
+    p = urlparse(url if "://" in url else "https://" + url)
+    host = re.sub(r"^(www|m)\.", "", p.hostname or "")
+    return host + p.path.rstrip("/") + (f"?{p.query}" if p.query else "")
+
+
+def apply_progress(titles, url, page, pos, dur, now_ms):
+    """Move the episode that url or page is (or was last) on to pos/dur. True if one matched."""
+    want = {c for c in (canon(url), canon(page)) if c}
+    for t in titles.values():
+        site, eps, last = t.get("site") or "", t.get("eps") or {}, t.get("last") or {}
+        k = next((k for k, e in eps.items() if canon(e.get("url"), site) in want), None)
+        if k is None and canon(last.get("url"), site) in want:
+            k = last.get("k")
+        if k not in eps:
+            continue
+        e = eps[k]
+        pct = min(100, max(e.get("pct") or 0, round(pos / dur * 100)))
+        e.update(pct=pct, pos=pos, dur=dur, at=now_ms,
+                 state="watched" if pct >= 90 else (e.get("state") or "started"))
+        t["last"] = {"k": k, "url": e.get("url") or last.get("url"), "at": now_ms}
+        return True
+    return False
+
+
+# ---- sleep timer: pause whatever plays after N minutes, fading the last one ----
+SLEEP = {"at": None}
+FADE_S = 60
+
+
+def sleep_state():
+    return {"sleepAt": SLEEP["at"], "sleepLeft": max(0, SLEEP["at"] - time.time()) if SLEEP["at"] else None}
+
+
+def _playing_target():
+    """The YTM adapter if it reports, else the browser's playing tab: (kind, id)."""
+    with B.cv:
+        if time.time() - B.seen < 35 and B.state:
+            return ("ytm", None)
+    t = next((t for t in tabs_now() if t.get("playing")), None)
+    return ("tab", t["id"]) if t else (None, None)
+
+
+def _send_cmd(kind, tid, cmd, arg=None):
+    if kind == "ytm":
+        B.push(cmd, arg)
+    elif kind == "tab":
+        T.push(cmd, arg, tid)
+
+
+def _sleep_run(at):
+    # Sleep until the fade starts; the target is picked then (what plays at that time).
+    while SLEEP["at"] == at and time.time() < at - FADE_S:
+        time.sleep(min(10, max(0.2, at - FADE_S - time.time())))
+    if SLEEP["at"] != at:
+        return
+    kind, tid = _playing_target()
+    with B.cv:
+        start_vol = B.state.get("volume") if kind == "ytm" else None
+    if kind == "tab":
+        start_vol = next((t.get("volume") for t in tabs_now() if t["id"] == tid), None)
+    while SLEEP["at"] == at and time.time() < at:
+        left = at - time.time()
+        if start_vol:
+            _send_cmd(kind, tid, "volume", max(1, round(start_vol * left / FADE_S)))
+        time.sleep(min(3, max(0.2, left)))
+    if SLEEP["at"] != at:
+        if start_vol:
+            _send_cmd(kind, tid, "volume", start_vol)  # cancelled mid-fade: put it back
+        return
+    _send_cmd(kind, tid, "pause")
+    time.sleep(2)
+    if start_vol:
+        _send_cmd(kind, tid, "volume", start_vol)  # the next play starts at the old volume
+    SLEEP["at"] = None
+
+
+def set_sleep(minutes):
+    if not minutes:
+        SLEEP["at"] = None
+        return {"ok": True, "sleepAt": None}
+    at = time.time() + minutes * 60
+    SLEEP["at"] = at
+    threading.Thread(target=_sleep_run, args=(at,), daemon=True).start()
+    return {"ok": True, **sleep_state()}
+
+
+def video_target(s):
+    """URL or bare id -> a music.youtube.com path the page can open."""
+    if re.fullmatch(r"[\w-]{11}", s):
+        return f"/watch?v={s}"
+    u = urlparse(s if "://" in s else "https://" + s)
+    q = parse_qs(u.query)
+    host = u.hostname or ""
+    if host.endswith("youtu.be"):
+        vid = u.path.strip("/").split("/")[0]
+        return f"/watch?v={vid}" + (f"&list={q['list'][0]}" if "list" in q else "")
+    if not re.search(r"(^|\.)youtube\.com$", host):
+        raise ValueError(f"not a YouTube link: {s}")
+    m = re.match(r"/(shorts|live|embed)/([\w-]{11})", u.path)
+    if m:
+        return f"/watch?v={m.group(2)}"
+    if "v" in q:
+        return f"/watch?v={q['v'][0]}" + (f"&list={q['list'][0]}" if "list" in q else "")
+    if "list" in q:
+        return f"/playlist?list={q['list'][0]}"
+    if host.startswith("music.") and u.path not in ("", "/"):
+        return u.path + (f"?{u.query}" if u.query else "")
+    raise ValueError(f"no video or playlist in: {s}")
+
+
+def request(method, path, body=None):
+    req = urllib.request.Request(BASE + path, method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        return json.load(e)
+    except OSError:
+        sys.exit("media: bridge not running (systemctl --user start media-bridge)")
+
+
+def pick_tab(sel):
+    """A tab by list number, id or site substring; None = the playing one."""
+    tabs = request("GET", "/tabs")["tabs"]
+    if not tabs:
+        sys.exit("media: no tabs with media")
+    if sel is None:
+        return next((t for t in tabs if t.get("playing")), tabs[0])["id"]
+    if sel.isdigit() and 1 <= int(sel) <= len(tabs) and not any(t["id"] == sel for t in tabs):
+        return tabs[int(sel) - 1]["id"]
+    hit = [t for t in tabs if t["id"] == sel] or [t for t in tabs if sel.lower() in (t.get("site") or "")]
+    if len(hit) != 1:
+        sys.exit(f"media: {'no' if not hit else 'more than one'} tab matches {sel!r} (see media list)")
+    return hit[0]["id"]
+
+
+def tab_cmd(tab, cmd, rest):
+    arg = None
+    if cmd in ("seek", "forward", "back", "volume", "rate"):
+        if cmd in ("seek", "volume", "rate") and not rest:
+            sys.exit(f"media: {cmd} needs a value")
+        arg = float(rest[0]) if rest else None
+    was = cmd in ("seek", "forward", "back") and any(
+        t["id"] == tab and t.get("playing") for t in request("GET", "/tabs")["tabs"])
+    r = request("POST", f"/tabs/{tab}/cmd", {"cmd": cmd, "arg": arg})
+    if not r.get("ok"):
+        sys.exit(f"media: {r.get('error')}")
+    if was:
+        # Until -43: -42's seek leaves YT Music paused. Harmless once the browser resumes itself.
+        time.sleep(0.4)
+        request("POST", f"/tabs/{tab}/cmd", {"cmd": "play"})
+    return 0
+
+
+MEDIA_EXT = re.compile(r"\.(mp4|m4v|webm|mkv|mov|m3u8|mpd)(\?|$)", re.I)
+
+
+def notify(msg):
+    import subprocess
+    subprocess.run(["notify-send", "-a", "tela-zen", "Open in another app", msg], check=False)
+
+
+CHESS_LIB = os.path.expanduser("~/.local/share/arcade/chess")
+
+
+def chess_sync(user, months=2):
+    """The user's finished chess.com games of the last `months` months into the chess library.
+    Already imported ones (their [Link] header is in a library file) are skipped."""
+    import json as _json, re as _re, urllib.request
+    if not _re.fullmatch(r"[a-z0-9_-]{2,40}", user or ""):
+        return {"ok": False, "error": "no chess.com user name"}
+    def get(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "arcade-chess (local, personal library sync)"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.read().decode("utf-8", "replace")
+    try:
+        archives = _json.loads(get(f"https://api.chess.com/pub/player/{user}/games/archives")).get("archives", [])
+    except Exception as e:
+        return {"ok": False, "error": f"chess.com did not answer: {e}"}
+    os.makedirs(CHESS_LIB, exist_ok=True)
+    have = set()
+    for f in os.listdir(CHESS_LIB):
+        if f.endswith(".pgn"):
+            try:
+                with open(os.path.join(CHESS_LIB, f), encoding="utf-8", errors="replace") as fh:
+                    m = _re.search(r'\[Link "([^"]+)"\]', fh.read(4000))
+                    if m:
+                        have.add(m.group(1))
+            except OSError:
+                pass
+    added = 0
+    new_files = []
+    for url in archives[-max(1, months):]:
+        try:
+            games = _json.loads(get(url)).get("games", [])
+        except Exception:
+            continue
+        for g in games:
+            pgn = g.get("pgn") or ""
+            link = g.get("url") or ""
+            if not pgn or link in have:
+                continue
+            if "[Link " not in pgn and link:
+                pgn = f'[Link "{link}"]\n' + pgn
+            if "[Source " not in pgn:
+                pgn = '[Source "chess.com"]\n' + pgn
+            secs = int(g.get("end_time") or time.time())
+            name = f"{secs:012d}-{9000 + added % 1000:04d}.pgn"
+            with open(os.path.join(CHESS_LIB, name), "w", encoding="utf-8") as fh:
+                fh.write(pgn.strip() + "\n")
+            have.add(link)
+            added += 1
+            new_files.append(name)
+    # the players of these games: picture, title, country, ratings, kept for the app
+    try:
+        names = {user}
+        for name in new_files:
+            with open(os.path.join(CHESS_LIB, name), encoding="utf-8", errors="replace") as fh:
+                head = fh.read(3000)
+            for k in ("White", "Black"):
+                m = _re.search(r'\[' + k + r' "([^"]+)"\]', head)
+                if m:
+                    names.add(m.group(1).lower())
+        chess_players(names, get)
+    except Exception:
+        pass
+    # each new game reviewed straight away, off the request: a summary to the desktop
+    if new_files:
+        import threading
+        threading.Thread(target=chess_review_and_notify, args=(user, new_files), daemon=True).start()
+    return {"ok": True, "added": added, "user": user}
+
+
+import shutil
+
+
+def chess_players(names, get):
+    """chess.com's public profile of each name: avatar (saved locally), title, country, ratings.
+    Kept in players.json beside the games; a profile is refreshed once a day at most."""
+    import json as _json
+    path = os.path.join(CHESS_LIB, "players.json")
+    avatars = os.path.join(CHESS_LIB, "avatars")
+    os.makedirs(avatars, exist_ok=True)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            known = _json.load(fh)
+    except (OSError, ValueError):
+        known = {}
+    now = time.time()
+    for n in sorted(names):
+        if not n or now - known.get(n, {}).get("fetched", 0) < 86400:
+            continue
+        try:
+            prof = _json.loads(get(f"https://api.chess.com/pub/player/{n}"))
+        except Exception:
+            continue
+        info = {"name": prof.get("username") or n, "title": prof.get("title", ""), "fetched": now,
+                "country": (prof.get("country") or "").rsplit("/", 1)[-1], "avatar": ""}
+        try:
+            stats = _json.loads(get(f"https://api.chess.com/pub/player/{n}/stats"))
+            info["ratings"] = {k.replace("chess_", ""): v.get("last", {}).get("rating")
+                               for k, v in stats.items() if k.startswith("chess_") and isinstance(v, dict)}
+        except Exception:
+            info["ratings"] = {}
+        url = prof.get("avatar")
+        if url:
+            try:
+                import urllib.request
+                req = urllib.request.Request(url, headers={"User-Agent": "arcade-chess (local, personal library sync)"})
+                with urllib.request.urlopen(req, timeout=20) as r, open(os.path.join(avatars, n + ".img"), "wb") as out:
+                    out.write(r.read())
+                info["avatar"] = os.path.join(avatars, n + ".img")
+            except Exception:
+                pass
+        known[n] = info
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        _json.dump(known, fh)
+    os.replace(tmp, path)
+
+
+def chess_review(path):
+    """The chess app's helper reviews one game: its JSON review, or None."""
+    import json as _json, subprocess
+    helper = os.environ.get("ARCADE_CHESS_BIN") or shutil.which("arcade-chess") or "/mnt/storage/dev-cache/targets/release/arcade-chess"
+    req = "\n".join([_json.dumps({"id": 1, "cmd": "load", "path": path}), _json.dumps({"id": 2, "cmd": "review"}), _json.dumps({"id": 3, "cmd": "quit"})]) + "\n"
+    try:
+        out = subprocess.run([helper], input=req, capture_output=True, text=True, timeout=300).stdout
+    except Exception:
+        return None
+    for line in out.splitlines():
+        try:
+            d = _json.loads(line)
+        except ValueError:
+            continue
+        if d.get("id") == 2 and d.get("review"):
+            return d["review"]
+    return None
+
+
+def chess_review_and_notify(user, files):
+    """Review the new games; save each review beside its PGN; tell the desktop how it went.
+    A first sync brings many games: all are reviewed, only the newest is announced."""
+    import json as _json, re as _re, subprocess
+    files = sorted(files)
+    quiet = set(files[:-1]) if len(files) > 3 else set()
+    if quiet:
+        try:
+            subprocess.run(["notify-send", "-a", "Chess", "-i", "arcade-chess-gui", "Chess: games imported",
+                            f"{len(files)} chess.com games are in your library, reviewed. The newest follows."], timeout=10)
+        except Exception:
+            pass
+    for name in files:
+        path = os.path.join(CHESS_LIB, name)
+        rv = chess_review(path)
+        if not rv:
+            continue
+        try:
+            with open(path[:-4] + ".review.json", "w", encoding="utf-8") as fh:
+                _json.dump(rv, fh)
+        except OSError:
+            pass
+        try:
+            head = open(path, encoding="utf-8", errors="replace").read(3000)
+        except OSError:
+            head = ""
+        tag = lambda k: (_re.search(r'\[' + k + r' "([^"]*)"\]', head) or [None, ""])[1]
+        side = "white" if tag("White").lower() == user else "black"
+        opp = tag("Black") if side == "white" else tag("White")
+        acc = rv.get("accuracy", {}).get(side)
+        mine = [m for m in rv.get("moves", []) if (m.get("ply", 0) % 2 == 0) == (side == "white")]
+        n = lambda c: sum(1 for m in mine if m.get("class") == c)
+        worst = max(mine, key=lambda m: m.get("loss", 0), default=None)
+        parts = [f"Accuracy {acc:.0f} %" if isinstance(acc, (int, float)) else "Reviewed"]
+        for c, label in (("Blunder", "blunder"), ("Mistake", "mistake"), ("Inaccuracy", "inaccuracy")):
+            if n(c):
+                parts.append(f"{n(c)} {label}{'s' if n(c) > 1 else ''}")
+        body = " · ".join(parts)
+        jump = 0
+        if worst and worst.get("loss", 0) >= 100:
+            mv = worst["ply"] // 2 + 1
+            body += f"\nWorst: {mv}{'.' if worst['ply'] % 2 == 0 else '...'} {worst.get('san', '')} (better {worst.get('best_san', '?')})"
+            jump = worst["ply"] + 1
+        result = tag("Result")
+        title = f"Chess: {'won' if (result == '1-0') == (side == 'white') and result in ('1-0', '0-1') else 'draw' if result == '1/2-1/2' else 'lost'} vs {opp or 'opponent'}"
+        if name in quiet:
+            continue
+        try:
+            act = subprocess.run(["notify-send", "-a", "Chess", "-i", "arcade-chess-gui", "-A", "open=Open review", title, body],
+                                 capture_output=True, text=True, timeout=600).stdout.strip()
+        except Exception:
+            act = ""
+        if act == "open":
+            env = dict(os.environ, ARCADE_CHESS_OPEN=name, ARCADE_CHESS_PLY=str(jump))
+            gui = shutil.which("arcade-chess-gui") or os.path.expanduser("~/.local/bin/arcade-chess-gui")
+            subprocess.Popen([gui], env=env, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def external(rest):
+    """Hand a video to reel, mpv or a command, with the site's referrer and cookies."""
+    import argparse, glob, shlex, shutil, subprocess, tempfile
+    ap = argparse.ArgumentParser(prog="media external")
+    ap.add_argument("--player", default="reel")
+    ap.add_argument("--referer", default="")
+    ap.add_argument("--cookies", default="")
+    ap.add_argument("--start", default="")
+    ap.add_argument("--command", default="")
+    ap.add_argument("url")
+    a = ap.parse_args(rest)
+    # Cookie files the browser wrote for earlier hand-offs.
+    for f in glob.glob(os.path.join(tempfile.gettempdir(), "tela-cookies-*.txt")):
+        if f != a.cookies and time.time() - os.path.getmtime(f) > 86400:
+            os.unlink(f)
+    spawn = lambda cmd: subprocess.Popen(cmd, start_new_session=True, stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def mpv():
+        cmd = ["mpv", "--force-window=immediate", "--title=${media-title}"]
+        raw = []
+        if a.referer:
+            cmd.append(f"--referrer={a.referer}")
+            raw.append(f"referer={a.referer}")
+        if a.cookies:
+            cmd += ["--cookies", f"--cookies-file={a.cookies}"]
+            raw.append(f"cookies={a.cookies}")
+        if a.start:
+            cmd.append(f"--start={a.start}")
+        if raw:
+            cmd.append("--ytdl-raw-options=" + ",".join(raw))
+        spawn(cmd + ["--", a.url])
+
+    if a.player == "mpv":
+        mpv()
+    elif a.player == "custom":
+        if not a.command:
+            notify("No command set (Settings → Pop-out video → Open in another app).")
+            return 1
+        q = {k: shlex.quote(v) for k, v in
+             {"url": a.url, "referer": a.referer, "cookies": a.cookies, "start": a.start or "0"}.items()}
+        spawn(["sh", "-c", a.command.format(**q)])
+    else:
+        # reel plays through its own mpv engine when given the site (referrer / cookies),
+        # and that engine finds hosters' streams with yt-dlp itself
+        reel = shutil.which("reel") or os.path.expanduser("~/.local/bin/reel")
+        if not os.access(reel, os.X_OK):
+            notify("reel is not installed; opening it in mpv.")
+            mpv()
+        else:
+            cmd = [reel]
+            if a.referer:
+                cmd += ["--referer", a.referer]
+            if a.cookies:
+                cmd += ["--cookies", a.cookies]
+            if a.start:
+                cmd += ["--start", a.start]
+            spawn(cmd + [a.url])
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "external":
+        return external(rest)
+    if cmd == "serve":
+        ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    if cmd == "status":
+        s = request("GET", "/state")
+        if "--json" in rest:
+            print(json.dumps(s))
+        elif not s.get("connected"):
+            print("nothing connected (no YTM tab, no browser tab with media)")
+        else:
+            mark = "▶" if s.get("playing") else "⏸"
+            print(f"{mark} {s.get('title', '?')} — {s.get('artist', '?')}")
+        return 0 if s.get("connected") else 1
+    if cmd == "sleep":
+        if not rest:
+            left = request("GET", "/sleep").get("sleepLeft")
+            print(f"pausing in {int(left // 60)}:{int(left % 60):02d}" if left else "no sleep timer")
+            return 0
+        arg = None if rest[0] in ("off", "0") else float(rest[0])
+        request("POST", "/sleep", {"minutes": arg})
+        print(f"pausing in {rest[0]} min (fading out over the last minute)" if arg else "sleep timer off")
+        return 0
+    if cmd == "list":
+        r = request("GET", "/tabs")
+        # Positions are as of the last post (`seen`); move playing ones on to now.
+        for t in r["tabs"]:
+            if t.get("playing") and t.get("position") is not None:
+                t["position"] = min(t["position"] + (time.time() - r["seen"]) * (t.get("rate") or 1),
+                                    t.get("duration") or float("inf"))
+        if "--json" in rest:
+            print(json.dumps(r["tabs"]))
+            return 0
+        if not r["tabs"]:
+            print("no tabs with media" if r["connected"] else "browser not connected")
+        for i, t in enumerate(r["tabs"], 1):
+            mark = "▶" if t.get("playing") else "⏸"
+            what = " — ".join(x for x in (t.get("title") or t.get("tabTitle"), t.get("artist")) if x)
+            tl = ""
+            if t.get("duration"):
+                f = lambda x: f"{int(x // 60)}:{int(x % 60):02d}"
+                tl = f" {f(t.get('position') or 0)}/{f(t['duration'])}"
+            vol = f" vol {t['volume']}" if t.get("volume") is not None else ""
+            print(f"{i:>2} {mark} {t.get('site') or '?':<22} {what}{tl}{vol}   [{t['id']}]")
+        return 0
+    if cmd not in COMMANDS and cmd not in TAB_COMMANDS:
+        tab = pick_tab(cmd)
+        if not rest or rest[0] not in TAB_COMMANDS:
+            sys.exit(f"media: unknown command {cmd!r} (see media --help)")
+        return tab_cmd(tab, rest[0], rest[1:])
+    if cmd not in COMMANDS:
+        # A tab-only command with no tab: the playing one.
+        return tab_cmd(pick_tab(None), cmd, rest)
+    if cmd != "open" and not request("GET", "/state").get("videoId") and cmd in TAB_COMMANDS:
+        # No YTM adapter connected: the browser's playing tab instead.
+        tabs = request("GET", "/tabs")["tabs"]
+        if tabs:
+            return tab_cmd(pick_tab(None), cmd, rest)
+    arg = None
+    if cmd == "open":
+        if not rest:
+            sys.exit("media: open needs a URL or video id")
+        try:
+            arg = video_target(rest[0])
+        except ValueError as e:
+            sys.exit(f"media: {e}")
+    elif cmd == "volume":
+        arg = max(0, min(100, int(rest[0])))
+    elif cmd == "seek":
+        if not rest:
+            sys.exit("media: seek needs seconds")
+        arg = float(rest[0])
+    elif cmd == "mode":
+        if not rest or rest[0] not in ("song", "video"):
+            sys.exit("media: mode needs song or video")
+        arg = rest[0]
+    r = request("POST", "/cmd", {"cmd": cmd, "arg": arg})
+    if not r.get("ok"):
+        sys.exit(f"media: {r.get('error')}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

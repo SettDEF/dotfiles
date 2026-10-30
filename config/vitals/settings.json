@@ -1,0 +1,12 @@
+{
+  "interval": 0.1,
+  "top": 60,
+  "probe_timeout_ms": 4000,
+  "show_power": true,
+  "show_battery": true,
+  "show_gpu": true,
+  "show_cores": true,
+  "show_memory": true,
+  "show_net": true,
+  "layout": "full"
+}

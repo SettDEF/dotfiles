@@ -1,0 +1,11 @@
+[Unit]
+Description=Loopback media bridge between the desktop and tela-zen tabs
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.scripts/media serve
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

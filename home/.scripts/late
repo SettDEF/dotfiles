@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Check if tmux session is already running
+tmux has-session -t translation 2>/dev/null
+
+# Get clipboard content
+clipboard_content=$(xclip -o -selection clipboard)
+
+if [ $? != 0 ]; then
+  echo "Clipboard is empty."
+  exit 1
+fi
+
+if [ $? != 0 ]; then
+  # Create a new tmux session named 'translation' if it doesn't exist
+  tmux new-session -d -s translation
+  tmux rename-window -t translation:0 'Main'
+  tmux send-keys -t translation:0 "echo Translation Session Started" C-m
+  tmux send-keys -t translation:0 "echo Clipboard: $clipboard_content" C-m
+else
+  # Attach to the existing tmux session if it exists
+  tmux attach -t translation
+  # Send clipboard content to tmux window
+  tmux send-keys -t translation:0 "$clipboard_content" C-m
+fi

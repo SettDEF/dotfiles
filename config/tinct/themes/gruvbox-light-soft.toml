@@ -1,0 +1,34 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Gruvbox Light Soft"
+dark = false
+derived = true
+
+[colors]
+yellow1 = "#f2e5bc"
+yellow2 = "#fbf1c7"
+yellow3 = "#ebdbb2"
+yellow4 = "#d5c4a1"
+yellow5 = "#bdae93"
+grey1 = "#a89984"
+grey2 = "#928374"
+grey3 = "#3c3836"
+yellow6 = "#fbf1c7"
+red1 = "#9d0006"
+red2 = "#af3a03"
+orange1 = "#b57614"
+yellow7 = "#79740e"
+green1 = "#427b58"
+cyan1 = "#076678"
+purple1 = "#8f3f71"
+red3 = "#cc241d"
+orange2 = "#d65d0e"
+yellow8 = "#d79921"
+yellow9 = "#98971a"
+green2 = "#689d6a"
+cyan2 = "#458588"
+red4 = "#b16286"
+
+[roles]
+background = "#f2e5bc"
+foreground = "#3c3836"
+primary = "#cc241d"

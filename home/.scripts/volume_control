@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Volume control using pactl (works with PipeWire as well)
+case "$1" in
+    "up")
+        pactl set-sink-volume @DEFAULT_SINK@ +5%  # Increase volume by 5%
+        ;;
+    "down")
+        pactl set-sink-volume @DEFAULT_SINK@ -5%  # Decrease volume by 5%
+        ;;
+    "toggle")
+        pactl set-sink-mute @DEFAULT_SINK@ toggle  # Mute/unmute
+        ;;
+    "show")
+        # Show current volume and mute status
+        pactl get-sink-volume @DEFAULT_SINK@ | grep -oP '\d+%\s+|muted' | tr -d '\n' | sed 's/ / | /g'
+        ;;
+    *)
+        echo "Usage: $0 {up|down|toggle|show}"
+        exit 1
+        ;;
+esac

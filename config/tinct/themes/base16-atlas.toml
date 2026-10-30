@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Atlas"
+dark = true
+derived = true
+
+[colors]
+blue1 = "#002635"
+blue2 = "#00384d"
+cyan1 = "#517f8d"
+grey1 = "#6c8b91"
+grey2 = "#869696"
+grey3 = "#a1a19a"
+grey4 = "#e6e6dc"
+grey5 = "#fafaf8"
+red1 = "#ff5a67"
+orange1 = "#f08e48"
+yellow1 = "#ffcc1b"
+green1 = "#7fc06e"
+cyan2 = "#14747e"
+cyan3 = "#5dd7b9"
+purple1 = "#9a70a4"
+red2 = "#c43060"
+
+[roles]
+background = "#002635"
+foreground = "#fafaf8"
+primary = "#ff5a67"

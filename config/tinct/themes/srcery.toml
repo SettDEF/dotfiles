@@ -1,0 +1,35 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Srcery"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#121110"
+red1 = "#ef2f27"
+green1 = "#519f50"
+yellow1 = "#fbb829"
+blue1 = "#2c78bf"
+red2 = "#e02c6d"
+cyan1 = "#0aaeb3"
+yellow2 = "#c5b088"
+grey2 = "#917e6b"
+red3 = "#f75341"
+green2 = "#98bc37"
+yellow3 = "#fed06e"
+blue2 = "#68a8e4"
+red4 = "#ff5c8f"
+cyan2 = "#2be4d0"
+yellow4 = "#fce8c3"
+red5 = "#4f2321"
+green3 = "#294229"
+green4 = "#2e5c2e"
+blue3 = "#1e5181"
+red6 = "#ff5f00"
+orange1 = "#ff8700"
+cyan3 = "#008080"
+grey3 = "#121212"
+
+[roles]
+background = "#121110"
+foreground = "#fce8c3"
+primary = "#ef2f27"

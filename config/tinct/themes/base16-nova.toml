@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Nova"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#3c4c55"
+grey2 = "#556873"
+grey3 = "#6a7d89"
+grey4 = "#899ba6"
+grey5 = "#899ba6"
+grey6 = "#c5d4dd"
+grey7 = "#899ba6"
+grey8 = "#556873"
+blue1 = "#83afe5"
+cyan1 = "#7fc1ca"
+green1 = "#a8ce93"
+cyan2 = "#7fc1ca"
+orange1 = "#f2c38f"
+blue2 = "#83afe5"
+purple1 = "#9a93e1"
+orange2 = "#f2c38f"
+
+[roles]
+background = "#3c4c55"
+foreground = "#c5d4dd"
+primary = "#a8ce93"

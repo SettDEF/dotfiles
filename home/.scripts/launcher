@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Function to kill rofi if running
+SLEEP_TIME=0.01
+function kp() {
+    [[ -z "$1" ]] && return 1
+    local pids
+    pids=$(pgrep -u "$USER" -f "$1")
+    [[ -z "$pids" ]] && return 1
+    echo "$pids" | xargs -r kill -TERM
+    local timeout=5
+    local count=0
+    while pgrep -u "$USER" -f "$1" >/dev/null; do
+        ((count++ >= timeout)) && return 1
+        sleep 1
+    done
+}
+
+# Function to initialize Rofi with all options and theme
+function init_rofi() {
+    rofi -combi-modi drun,window,ssh \
+        -show combi \
+        -modi combi \
+        -matching fuzzy \
+        -theme ~/.config/rofi/style_3.rasi
+}
+
+# Kill any running instance of Rofi
+kp rofi
+
+# Start Rofi
+init_rofi
+
+# Choosings
+OPTIONS="Apps\nNetwork\nPower Menu\nBluetooth\nVolume\nBacklight\nScreenshot\nWeb Search\nWifi\nCheatsheets\nProjects"
+
+# Run Rofi with the menu options
+CHOICE=$(echo -e "$OPTIONS" | rofi -dmenu -p "Choose:" -theme ~/.config/rofi/style_2.rasi)
+
+# Execute corresponding script based on user choice
+case "$CHOICE" in
+Apps) ~/.config/rofi/scripts/apps.sh ;;
+Network) ~/.config/rofi/scripts/network.sh ;;
+Power\ Menu) ~/.config/rofi/scripts/powermenu.sh ;;
+Bluetooth) ~/.config/rofi/scripts/bluetooth.sh ;;
+Volume) ~/.config/rofi/scripts/volume.sh ;;
+Backlight) ~/.config/rofi/scripts/backlight.sh ;;
+Screenshot) ~/.config/rofi/scripts/screenshot.sh ;;
+Web\ Search) ~/.config/rofi/scripts/rofi-web-search.py ;;
+Wifi) ~/.config/rofi/scripts/wifi.sh ;;
+Cheatsheets) ~/.config/rofi/scripts/cheeet/cheatsheet.sh sgl ;;
+Projects) ~/.config/rofi/scripts/projects.sh ;;
+*) exit 1 ;; # Exit if no valid option
+esac

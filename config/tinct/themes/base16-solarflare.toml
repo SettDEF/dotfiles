@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Solarflare"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#18262f"
+grey2 = "#222e38"
+grey3 = "#586875"
+grey4 = "#667581"
+grey5 = "#85939e"
+grey6 = "#a6afb8"
+grey7 = "#e8e9ed"
+grey8 = "#f5f7fa"
+red1 = "#ef5253"
+orange1 = "#e66b2b"
+yellow1 = "#e4b51c"
+green1 = "#7cc844"
+cyan1 = "#52cbb0"
+cyan2 = "#33b5e1"
+purple1 = "#a363d5"
+red2 = "#d73c9a"
+
+[roles]
+background = "#18262f"
+foreground = "#f5f7fa"
+primary = "#ef5253"

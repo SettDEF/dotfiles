@@ -1,0 +1,13 @@
+[Unit]
+Description=Restore the keyboard backlight colour
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 3
+ExecStart=/bin/sh -c 'cat %h/.config/iris/color | /home/caesar/.local/bin/iris hid solid - --vivid'
+
+[Install]
+WantedBy=graphical-session.target

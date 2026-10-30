@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for new Crafting App releases daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+# Catch up on a day the laptop was off.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

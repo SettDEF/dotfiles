@@ -1,0 +1,64 @@
+# this is notes for video: http://www.youtube.com/watch?v=sxw-n5Du600
+
+
+
+## for ~/.tmux.conf
+# -v = split horizontal
+# -h = split veritical
+
+################### tmux 2.4
+# Note: seems like in 2.4 you have to use -t WINDOWNAME for it to work
+
+bind-key M-a new-window -n gbu -c $HOME \; \
+  new-window -n bt -c $HOME \; \
+  send-keys -t bt 'transmission-remote-cli' 'Enter' \; \
+  split-window -t bt \; \
+  send-keys -t bt 'ranger ~/DL_Torrent' 'Enter' \; \
+  new-window -n mus -c $HOME \; \
+  send-keys -t mus 'cmus' 'Enter' \; \
+  new-window -n chat -c $HOME \; \
+  send-keys -t chat 'weechat-curses' 'Enter' \; \
+  split-window -h -p 20 -t chat \; \
+  send-keys -t chat 'sleep 10 && tmux rename-window -t 4 chat && finch' 'Enter' \; \
+  new-window -n mail -c $HOME \; \
+  send-keys -t mail 'mutt' 'Enter' \; \
+  new-window -n rss -c $HOME \; \
+  send-keys -t rss 'newsbeuter' 'Enter'
+
+
+################### tmux 2.3
+
+# chatting
+bind-key M-c new-window -n chat -c $HOME \; \
+	send-keys 'centerim5' 'Enter' \; \
+	split-window -v -p 50 -t 1  \; \
+	send-keys 'weechat-curses' 'Enter' \; \
+	select-pane -t 2
+
+# local music and streaming
+bind-key M-m new-window -n music -c $HOME \; \
+	send-keys 'clear && figlet Radio' 'Enter' \; \
+	split-window -v -p 50 -t 1 \; \
+	send-keys 'cmus' 'Enter' \; \
+	split-window -h -p 70 -t 1 \; \
+	send-keys 'clear && figlet Search Music' 'Enter' \; \
+	select-pane -t 2
+
+# download and search torrent
+bind-key M-t new-window -n torrent -c ~/Videos \; \
+	send-keys 'trz' 'Enter' \; \
+	split-window -v -p 50 -t 1 \; \
+	send-keys 'transmission-remote-cli' 'Enter' \; \
+	select-pane -t 1
+
+# work
+bind-key M-w new-window -n work -c $HOME \; \
+	send-keys 'clear && figlet Workhorse' 'Enter' \; \
+	split-window -v -p 30 -t 1 \; \
+	send-keys 'ranger ~/Documents' 'Enter' \; \
+	split-window -h -p 35 -t 1 \; \
+	send-keys 'tty-clock -t' 'Enter' \; \
+	split-window -v -p 50 -t 3 \; \
+	send-keys 'cmatrix' 'Enter' \; \
+	select-pane -t 2
+

@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Cupertino"
+dark = false
+derived = true
+
+[colors]
+grey1 = "#ffffff"
+grey2 = "#c0c0c0"
+grey3 = "#c0c0c0"
+grey4 = "#808080"
+grey5 = "#808080"
+grey6 = "#404040"
+grey7 = "#404040"
+grey8 = "#5e5e5e"
+red1 = "#c41a15"
+orange1 = "#eb8500"
+yellow1 = "#826b28"
+green1 = "#007400"
+cyan1 = "#318495"
+blue1 = "#0000ff"
+purple1 = "#a90d91"
+yellow2 = "#826b28"
+
+[roles]
+background = "#ffffff"
+foreground = "#404040"
+primary = "#0000ff"

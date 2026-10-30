@@ -1,0 +1,12 @@
+# Android dev env for WAVR_container.
+# Sourced by ~/.config/zsh/.zshrc which globs ~/.config/function/*.
+# Sets JAVA_HOME directly instead of `archlinux-java set` so anything
+# still on JDK 11 keeps working. Switch to java-17-openjdk if AGP
+# starts complaining JDK 26 is too new.
+export ANDROID_HOME=$HOME/Android/Sdk
+export NDK_HOME=$ANDROID_HOME/ndk/29.0.13846066
+
+ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export ANDROID_HOME=$HOME/Android/Sdk
+  #export cmdline-tools=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+  #  "platform-tools" "platforms;android-36" "build-tools;36.0.0"

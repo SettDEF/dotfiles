@@ -1,0 +1,278 @@
+#!/bin/bash
+# rdmcpape — wallpaper palette quantizer.
+# Forces a wallpaper to use only colors from a chosen palette via
+#   `magick -remap palette.png -dither <mode> -colors <N>`.
+#
+# Two modes:
+#   1. Legacy multi-monitor: pick wallpapers from a dir, remap one per
+#      monitor, set with feh (X11 only).
+#   2. Single-file (--output PATH): remap one image and write the result.
+#      No xrandr/feh — Wayland & WallTune compatible.
+#
+# Palette sources:
+#   --palette NAME      load named palette from palettes.json
+#   --tinct           build palette from tinct's live colors.json
+#                       (~/.local/state/quickshell/user/generated/colors.json)
+#   --palette-file PATH custom JSON: { "name": ["#hex", ...] } or just an array
+#
+# Common options:
+#   --output PATH       single-file mode (skip multi-monitor / feh)
+#   --colors N          quantize to N colors (default 32)
+#   --dither MODE       dithering: none|riemersma|FloydSteinberg|2x2|8x8|16x16
+#                       (default 2x2)
+#   --list-palettes     print known palette names
+#   --help / --version
+
+set -e
+
+TMP_DIR="${TMP_DIR:-$HOME/.cache}"
+mkdir -p "$TMP_DIR"
+PALETTE_FILE="$TMP_DIR/color_palette.png"
+
+QSCRIPT_DIR="$HOME/.config/quickshell/ii/scripts/colors"
+PALETTES_JSON="$QSCRIPT_DIR/palettes.json"
+TINCT_JSON="$HOME/.local/state/quickshell/user/generated/colors.json"
+
+WALLPAPER_DIR="$HOME/.wallpapers"
+
+# Defaults
+PALETTE=""
+PALETTE_FILE_ARG=""
+USE_TINCT=0
+WALLPAPER_PATH=""
+OUTPUT=""
+COLORS=32
+DITHER="FloydSteinberg2x2"
+
+usage() {
+    cat <<EOF
+Usage: $0 [OPTIONS] [PATH]
+
+Generate palette-quantized wallpapers.
+
+Palette source (pick one):
+  --palette NAME       use named palette from $PALETTES_JSON
+  --tinct            use tinct's live colors.json palette (auto-tuned)
+  --palette-file PATH  custom JSON file (see --help)
+
+Output:
+  --output PATH        write a single processed image (Wayland mode)
+                       (without --output: legacy multi-monitor + feh mode)
+
+Quality:
+  --colors N           quantize to N colors (default $COLORS)
+  --dither MODE        none | riemersma | FloydSteinberg | 2x2 | 8x8 | 16x16
+                       (default $DITHER)
+
+Other:
+  --list-palettes      list known palette names and exit
+  --help               this message
+  --version            print version
+
+PATH can be a directory (multi-monitor mode) or a single image (--output).
+EOF
+}
+
+list_palettes() {
+    if [[ ! -f $PALETTES_JSON ]]; then
+        echo "No palette file at: $PALETTES_JSON" >&2
+        return 1
+    fi
+    jq -r 'keys[]' "$PALETTES_JSON"
+    [[ -f $TINCT_JSON ]] && echo "tinct"
+}
+
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --palette=*)         PALETTE="${1#*=}"; shift ;;
+            --palette)           PALETTE="$2"; shift 2 ;;
+            --palette-file)      PALETTE_FILE_ARG="$2"; shift 2 ;;
+            --tinct)           USE_TINCT=1; shift ;;
+            --output)            OUTPUT="$2"; shift 2 ;;
+            --colors)            COLORS="$2"; shift 2 ;;
+            --dither)            DITHER="$2"; shift 2 ;;
+            --list-palettes)     list_palettes; exit 0 ;;
+            --help)              usage; exit 0 ;;
+            --version)           echo "rdmcpape 2.0"; exit 0 ;;
+            -*)                  echo "Unknown option: $1" >&2; usage; exit 1 ;;
+            *)                   WALLPAPER_PATH="$1"; shift ;;
+        esac
+    done
+}
+
+# Loads $colors[] from a JSON source, in priority order:
+#   1. --palette-file   (custom JSON)
+#   2. --tinct        (live tinct colors.json — uses accent groups only)
+#   3. --palette NAME   (from palettes.json)
+#   4. <none>           (combine all named palettes — legacy default)
+load_colors() {
+    colors=()
+    if [[ -n $PALETTE_FILE_ARG ]]; then
+        if [[ ! -f $PALETTE_FILE_ARG ]]; then
+            echo "Palette file not found: $PALETTE_FILE_ARG" >&2; exit 1
+        fi
+        # Accept either { "name": [hex,...] } pick-one OR raw array.
+        if jq -e 'type == "array"' "$PALETTE_FILE_ARG" >/dev/null 2>&1; then
+            mapfile -t colors < <(jq -r '.[]' "$PALETTE_FILE_ARG")
+        else
+            local key="${PALETTE:-$(jq -r 'keys[0]' "$PALETTE_FILE_ARG")}"
+            mapfile -t colors < <(jq -r --arg k "$key" '.[$k][]' "$PALETTE_FILE_ARG")
+        fi
+        return
+    fi
+
+    if [[ $USE_TINCT -eq 1 ]]; then
+        if [[ ! -f $TINCT_JSON ]]; then
+            echo "tinct colors.json missing — has switchwall.sh been run?" >&2
+            exit 1
+        fi
+        # Build an aesthetically useful palette from tinct output.
+        # We pull accent groups + surface anchors; skip the "*_fixed*"
+        # variants since they overlap heavily.
+        local keys=(
+            primary primary_container on_primary on_primary_container
+            secondary secondary_container on_secondary on_secondary_container
+            tertiary tertiary_container on_tertiary on_tertiary_container
+            background on_background surface on_surface
+            surface_container surface_container_high surface_container_low
+            error
+        )
+        for k in "${keys[@]}"; do
+            local v
+            v=$(jq -r --arg k "$k" '.[$k] // empty' "$TINCT_JSON")
+            [[ -n $v && $v != null ]] && colors+=("$v")
+        done
+        if [[ ${#colors[@]} -lt 4 ]]; then
+            echo "tinct palette only had ${#colors[@]} colors — falling back" >&2
+            PALETTE="default"; USE_TINCT=0
+            load_colors
+        fi
+        return
+    fi
+
+    if [[ ! -f $PALETTES_JSON ]]; then
+        echo "Palette JSON missing: $PALETTES_JSON" >&2; exit 1
+    fi
+
+    if [[ -n $PALETTE ]]; then
+        if ! jq -e --arg k "$PALETTE" '.[$k]' "$PALETTES_JSON" >/dev/null 2>&1; then
+            echo "Unknown palette: $PALETTE" >&2
+            echo "Known: $(jq -r 'keys | join(", ")' "$PALETTES_JSON")" >&2
+            exit 1
+        fi
+        mapfile -t colors < <(jq -r --arg k "$PALETTE" '.[$k][]' "$PALETTES_JSON")
+    else
+        # Combine all palettes (legacy default behaviour).
+        mapfile -t colors < <(jq -r '[.[] | .[]] | unique | .[]' "$PALETTES_JSON")
+    fi
+}
+
+create_palette_png() {
+    local color_args=()
+    for c in "${colors[@]}"; do
+        color_args+=("(" -size 1x1 "xc:$c" ")")
+    done
+    magick "${color_args[@]}" +append "$PALETTE_FILE"
+    echo "$PALETTE_FILE"
+}
+
+# Apply the loaded palette to ONE image, writing to $2.
+remap_one() {
+    local in="$1" out="$2" mode
+    # magick ignored -dither placed after -remap, so no mode ever dithered;
+    # tinct applies the one asked for.
+    case "${DITHER,,}" in
+        none) mode=none ;;
+        floydsteinberg2x2|2x2) mode=bayer2 ;;
+        floydsteinberg|riemersma) mode=floyd-steinberg ;;
+        8x8) mode=bayer8 ;;
+        16x16) mode=bayer16 ;;
+        *) mode=floyd-steinberg ;;
+    esac
+    "$HOME/.local/bin/tinct" image remap "$in" "$out" --palette "$(IFS=,; echo "${colors[*]}")" --dither "$mode"
+}
+
+# ── Legacy multi-monitor / feh helpers ──────────────────────────────────
+shuffle_wallpapers() {
+    local -a arr=("$@")
+    local i temp j
+    for ((i = ${#arr[@]} - 1; i > 0; i--)); do
+        j=$((RANDOM % (i + 1)))
+        temp="${arr[i]}"; arr[i]="${arr[j]}"; arr[j]="$temp"
+    done
+    printf '%s\n' "${arr[@]}"
+}
+get_resolution() { magick identify -format "%wx%h" "$1"; }
+is_min_resolution() {
+    local w h
+    w=$(echo "$1" | cut -d'x' -f1)
+    h=$(echo "$1" | cut -d'x' -f2)
+    [[ "$w" -ge 2560 && "$h" -ge 1440 ]]
+}
+resize_wallpaper() {
+    local in="$1" out="$2"
+    if is_min_resolution "$(get_resolution "$in")"; then
+        cp "$in" "$out"
+    else
+        magick "$in" -resize "2560x1440^" -gravity center -extent 2560x1440 "$out"
+    fi
+}
+
+# ── Main ────────────────────────────────────────────────────────────────
+main() {
+    parse_arguments "$@"
+    load_colors
+
+    # Single-file mode: simplest, Wayland/WallTune friendly.
+    if [[ -n $OUTPUT ]]; then
+        if [[ -z $WALLPAPER_PATH || ! -f $WALLPAPER_PATH ]]; then
+            echo "--output requires a source image PATH" >&2; exit 1
+        fi
+        remap_one "$WALLPAPER_PATH" "$OUTPUT"
+        echo "Wrote: $OUTPUT  (palette: ${PALETTE:-${USE_TINCT:+tinct}}, dither: $DITHER, colors: $COLORS, swatches: ${#colors[@]})"
+        return
+    fi
+
+    # Legacy multi-monitor mode (X11 / feh).
+    create_palette_png >/dev/null
+    [[ -n $WALLPAPER_PATH ]] && WALLPAPER_DIR="$WALLPAPER_PATH"
+
+    mapfile -t wallpapers < <(find "$WALLPAPER_DIR" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \))
+    if [[ ${#wallpapers[@]} -eq 0 ]]; then
+        echo "No wallpapers found in $WALLPAPER_DIR"; exit 1
+    fi
+    echo -e "\e[1;32m [${#wallpapers[@]}]\e[0m \e[7;34mfound\e[0m"
+
+    mapfile -t shuffled < <(shuffle_wallpapers "${wallpapers[@]}")
+    local monitors
+    monitors=$(xrandr --listmonitors 2>/dev/null | awk '/Monitors:/ {print $2}')
+    monitors="${monitors:-1}"
+
+    local generated=()
+    for ((i = 0; i < monitors; i++)); do
+        local wall="${shuffled[$((i % ${#shuffled[@]}))]}"
+        echo -e " \e[1;32mFound\e[0m \e[1;35m$wall\e[0m"
+        local out="$TMP_DIR/wallpaper_$i.png"
+
+        if is_min_resolution "$(get_resolution "$wall")"; then
+            magick "$wall" -gravity center -remap "$PALETTE_FILE" \
+                   -dither "$DITHER" -quantize transparent -colors "$COLORS" "$out"
+        else
+            resize_wallpaper "$wall" "$out"
+            magick "$out" -remap "$PALETTE_FILE" \
+                   -dither "$DITHER" -quantize transparent -colors "$COLORS" "$out"
+        fi
+        generated+=("$out")
+        echo -e "-> \e[2;31mGenerated\e[0m: \e[0;37m$out"
+    done
+
+    if command -v feh >/dev/null 2>&1; then
+        feh --bg-fill "${generated[@]}"
+    else
+        echo "feh not found; generated files left in $TMP_DIR" >&2
+    fi
+    rm -f "${generated[@]}"
+}
+
+main "$@"

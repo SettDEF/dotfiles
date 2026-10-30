@@ -1,0 +1,13 @@
+[Unit]
+Description=MPRIS to loopback HTTP (ReSkate media shim, Discord presence)
+After=dbus.service
+
+[Service]
+ExecStart=%h/.local/bin/mpris-bridge
+Restart=on-failure
+RestartSec=3
+Nice=10
+MemoryMax=64M
+
+[Install]
+WantedBy=default.target

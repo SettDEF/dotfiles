@@ -1,0 +1,616 @@
+#!/usr/bin/env bash
+# multifetch - finds everything..
+
+set -uo pipefail
+
+VERSION=2.0
+
+SITES_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/multifetch/sites"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/multifetch"
+KEYS_FILE="$HOME/.secure/apikeys"
+UA="Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+
+usage() {
+    cat <<'EOF'
+Usage: multifetch [OPTION]... KEYWORD...
+       ... | multifetch [OPTION]...          (keywords from stdin, one per line)
+Search the web and many sites for KEYWORD: a course, a release, a name.
+
+Modes (default: pick in fzf on a terminal, --print in a pipe):
+  -p, --print            every search as category<TAB>label<TAB>url
+  -s, --scan             run the searches through the Brave API, save hits
+  -n, --new              hits of the latest scan no earlier scan had
+  -d, --discover         search the sites directly, list posts and new hosts
+  -a, --add              with -d: add the hosts found to your site list
+  -i, --iptv             public IPTV playlists, checked; Enter adds one to reel
+  -l, --sites            every built-in site and whether it resolves
+  -e, --edit             edit your extra site list
+
+Choosing:
+  -c, --category CAT     only these categories (repeat, or comma-separated);
+                         -c list prints the categories
+  -f, --file FILE        keywords from FILE, one per line ("-" = stdin)
+  -w, --words            every word its own keyword (default: unquoted words
+                         are one name; quoted arguments one keyword each)
+
+Output:
+  -u, --urls             URLs only, one per line
+  -C, --count            only the number of results
+  -m, --max N            stop after N results
+  -j, --json             one JSON object per line
+  -H, --no-header        no header line in tables
+  -q, --quiet            nothing printed; the exit status says it
+      --color[=WHEN]     colour: auto (default), always, never
+  -o, --open             open every result in the browser, no fzf
+  -h, --help             this help
+  -V, --version          the version
+  --                     end of options (a keyword may then start with -)
+
+Exit status: 0 something found, 1 nothing found, 2 an error (as grep).
+
+Examples:
+  multifetch "Course Name" "Creator"            pick in fzf, open in the browser
+  multifetch -p -c torrent,file-host Name        two categories as a table
+  multifetch -pu Name | xargs -n1 xdg-open      every URL into the browser
+  cat names.txt | multifetch -j | jq .url        many keywords, JSON out
+  multifetch -s Name && multifetch -n Name       scan, then what is new
+  multifetch -i germany                          IPTV lists for Germany
+
+Files: extra sites in ~/.config/multifetch/sites, scans in ~/.local/share/multifetch/.
+--scan needs BRAVE_API_KEY in ~/.secure/apikeys (free tier: api.search.brave.com).
+EOF
+}
+
+die() { echo "multifetch: $*" >&2; exit 2; }
+urlencode() { jq -rn --arg s "$1" '$s|@uri'; }
+slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//'; }
+command -v jq >/dev/null || die "jq is required"
+
+# --- where leaks live ---------------------------------------------------------
+# category|domain. Checked to resolve 2026-10-07.
+SITES=(
+    "course-leak|freecoursesite.com"   "course-leak|fcsnew.net"        "course-leak|freecourseweb.com"
+    "course-leak|coursedrive.org"      "course-leak|getfreecourses.co"
+    "course-leak|downloadly.ir"        "course-leak|onehack.us"
+    "course-leak|freetutorials.eu"     "course-leak|courseclub.me"
+    "audio-warez|audioz.download"      "audio-warez|4download.net"
+    # Music-production leaks specifically: sample packs, presets, project
+    # files and courses. Resolved 2026-10-07 (vstwarez.com, audiotools.in dead;
+    # sampleswap.org / producerspot.com are legitimate free sites, searched too).
+    "audio-free|sampleswap.org"        "audio-free|producerspot.com"
+    "audio-warez|magesy.blog"          "audio-warez|magesypro.pro"
+    "audio-warez|freshstuff4you.com"   "audio-warez|vstorrent.org"
+    "audio-warez|plugintorrent.com"    "audio-warez|producersbuzz.com"
+    "audio-warez|audiostorrent.com"
+    # Found 2026-10-07 by following real schranz leak posts on AudioZ to where
+    # they link (multifetch finds hosts best by reading leaks, not guessing):
+    "audio-warez|audiosex.pro"         "course-leak|sanet.st"
+    "file-host|peeplink.in"            "file-host|nitroflare.net"
+    "file-host|xenupload.com"          "file-host|paste-link.com"
+    "course-leak|onehack.st"
+    # General release blogs that carry video courses and tutorials.
+    "course-leak|avxhm.se"             "course-leak|softarchive.is"
+    "course-leak|rlsbb.ru"             "course-leak|tutorialsplanet.net"
+    # Scene music releases: for your tracks/albums (the "Artist name" keyword).
+    "music-release|0daymusic.org"
+    "torrent|rutracker.org"            "torrent|1337x.to"
+    "torrent|thepiratebay.org"
+    "file-host|mega.nz"                "file-host|drive.google.com"
+    "file-host|dropbox.com"            "file-host|mediafire.com"
+    "file-host|gofile.io"              "file-host|pixeldrain.com"
+    "file-host|krakenfiles.com"        "file-host|1fichier.com"
+    "file-host|rapidgator.net"         "file-host|nitroflare.com"
+    "file-host|uploadhaven.com"        "file-host|workupload.com"
+    "file-host|terabox.com"
+    "telegram|t.me"                    "telegram|tgstat.com"
+    "telegram|lyzem.com"               "torrent|btdig.com"               "torrent|bitsearch.eu"
+    "telegram|telemetr.io"
+    "creator-leak|kemono.cr"
+    "social|reddit.com"                "social|discord.com"
+    "social|vk.com"
+    # Music-production course platforms: a hit here is your course re-uploaded
+    # or resold under someone else's name. Resolved 2026-10-07 (askvideo.com dead).
+    "platform|udemy.com"              "platform|skillshare.com"
+    "platform|domestika.org"          "platform|masterclass.com"
+    "platform|adsrsounds.com"         "platform|groove3.com"
+    "platform|sonicacademy.com"       "platform|productionmusiclive.com"
+    "platform|pointblankmusicschool.com" "platform|pyramind.com"
+    "platform|online.berklee.edu"     "platform|loopmasters.com"
+    "platform|splice.com"             "platform|cymatics.fm"
+    "platform|mixwiththemasters.com"  "platform|puremix.com"
+    # Added 2026-10-29 (all resolved that day): torrent indexes, course and audio
+    # leak sites, file hosts and link protectors, paste sites, forums, release
+    # databases, Telegram indexes and big social / video sites.
+    "torrent|nyaa.si"  "torrent|eztvx.to"  "torrent|limetorrents.lol"
+    "torrent|torrentdownloads.pro"  "torrent|knaben.org"  "torrent|snowfl.com"
+    "torrent|torlock.com"  "torrent|magnetdl.com"  "torrent|glodls.to"
+    "torrent|torrentfunk.com"  "torrent|kickasstorrents.to"  "torrent|solidtorrents.to"
+    "torrent|idope.se"  "torrent|torrentproject2.net"  "torrent|rutor.info"
+    "torrent|nnmclub.to"  "torrent|tapochek.net"  "torrent|fitgirl-repacks.site"
+    "course-leak|tutsnode.org"  "course-leak|courseflix.net"  "course-leak|freecourseudemy.com"
+    "course-leak|paidcoursesforfree.com"  "course-leak|coursehunter.net"  "course-leak|tutflix.org"
+    "course-leak|freecoursesonline.me"  "course-leak|downloadfreecourse.com"  "course-leak|courseforfree.net"
+    "course-leak|graphicux.com"  "course-leak|coursesghar.com"  "course-leak|hide01.ir"
+    "audio-warez|vsttorrentz.net"  "audio-warez|vstcrack.net"  "audio-warez|bestcracksoftwares.com"
+    "audio-warez|getintopc.com"  "audio-warez|haxnode.net"  "file-host|ddownload.com"
+    "file-host|katfile.com"  "file-host|turbobit.net"  "file-host|hitfile.net"
+    "file-host|uploady.io"  "file-host|send.cm"  "file-host|buzzheavier.com"
+    "file-host|filecrypt.cc"  "file-host|ouo.io"  "file-host|keeplinks.org"
+    "file-host|dailyuploads.net"  "file-host|usersdrive.com"  "file-host|filefactory.com"
+    "file-host|qiwi.gg"  "file-host|fileditch.com"  "file-host|bowfile.com"
+    "file-host|uploadrar.com"  "file-host|frdl.io"  "file-host|hexupload.net"
+    "file-host|clicknupload.click"  "paste|pastebin.com"  "paste|rentry.co"
+    "paste|justpaste.it"  "paste|controlc.com"  "paste|pastes.io"
+    "paste|privatebin.net"  "forum|forum.mobilism.org"  "forum|board4all.biz"
+    "forum|ddl-warez.to"  "forum|dbree.me"  "forum|leakforums.co"
+    "forum|nulled.org"  "forum|blackhatworld.com"  "release|xrel.to"
+    "release|predb.net"  "release|srrdb.com"  "release|predb.org"
+    "telegram|tlgrm.eu"  "telegram|telegramchannels.me"  "telegram|tgchannels.org"
+    "social|x.com"  "social|facebook.com"  "social|pinterest.com"
+    "social|quora.com"  "social|archive.org"  "social|scribd.com"
+    "social|slideshare.net"  "social|soundcloud.com"  "social|bilibili.com"
+    "social|ok.ru"  "social|dailymotion.com"
+    # Did not resolve on 2026-10-29, listed anyway (domains come back; -l shows the state).
+    "torrent|yts.mx"  "torrent|torrentz2.nz"  "course-leak|getcourse.club"
+    "course-leak|gfxdomain.net"  "course-leak|tutorialsfree.net"  "audio-warez|audiotools.in"
+    "forum|cracked.io"  "creator-leak|kemono.su"  "creator-leak|coomer.su"
+)
+if [[ -f "$SITES_FILE" ]]; then
+    while IFS= read -r line; do
+        line="${line%%#*}"; line="${line//[[:space:]]/}"
+        [[ -n "$line" ]] && SITES+=("custom|$line")
+    done < "$SITES_FILE"
+fi
+
+# Words leak posts use. Each becomes one search with the quoted keyword.
+PATTERNS=(
+    'download' 'free download' 'torrent' 'leak OR leaked' '"mega" OR "mega.nz"'
+    'zip OR rar OR 7z' '"full course" OR "complete course"' 'crack OR cracked OR "repack"'
+    'kostenlos OR gratis' 'скачать OR бесплатно'
+    # How music-production material is titled when it is reposted.
+    '"sample pack" OR "samples"' '"project file" OR "project files" OR als OR flp'
+    'presets OR "preset pack"' 'WAV OR MIDI OR stems' 'masterclass OR tutorial OR "video course"'
+)
+
+# Sites whose own search sees what Google does not (fill {} with the keyword).
+DIRECT=(
+    "torrent|1337x|https://1337x.to/search/{}/1/"
+    "torrent|The Pirate Bay|https://thepiratebay.org/search.php?q={}"
+    "torrent|RuTracker|https://rutracker.org/forum/tracker.php?nm={}"
+    "audio-warez|AudioZ|https://audioz.download/?do=search&subaction=search&story={}"
+    "social|Reddit|https://www.reddit.com/search/?q={}"
+    "social|YouTube|https://www.youtube.com/results?search_query={}"
+)
+
+# --- options: short or long, bundled (-pu), anywhere, "--" ends them ---------------
+MODE="" IPTV=0 ADD=0 FORMAT=table HEADER=1 QUIET=0 COLOR=auto SPLIT=0 OPEN=0 MAX=0
+CATS=() WORDS=() FILES=() KEYWORDS_IN=()
+need_arg() { [[ $# -ge 2 && -n "$2" ]] || die "option $1 needs an argument (see multifetch -h)"; }
+# one short option without an argument; false when it is not one
+flag() {
+    case "$1" in
+        h) usage; exit 0 ;;          V) echo "multifetch $VERSION"; exit 0 ;;
+        p) MODE=print ;;             s) MODE=scan ;;          n) MODE=new ;;
+        d) MODE=discover ;;          a) ADD=1 ;;              i) IPTV=1 ;;
+        l) MODE=sites ;;             e) MODE=edit ;;          u) FORMAT=urls ;;
+        j) FORMAT=json ;;            H) HEADER=0 ;;           q) QUIET=1 ;;
+        o) OPEN=1 ;;                 w) SPLIT=1 ;;            C) FORMAT=count ;;
+        *) return 1 ;;
+    esac
+}
+while [[ $# -gt 0 ]]; do
+    a="$1"
+    case "$a" in
+        --) shift; WORDS+=("$@"); break ;;
+        --help) flag h ;;      --version) flag V ;;   --print) flag p ;;   --scan) flag s ;;
+        --new) flag n ;;       --discover) flag d ;;  --add) flag a ;;     --iptv) flag i ;;
+        --sites) flag l ;;     --edit) flag e ;;      --urls) flag u ;;    --json) flag j ;;
+        --no-header) flag H ;; --quiet) flag q ;;     --open) flag o ;;    --words) flag w ;;
+        --count) flag C ;;
+        -m|--max) need_arg "$@"; MAX="$2"; shift ;;
+        --max=*) MAX="${a#*=}" ;;
+        --color|--colour) COLOR=always ;;
+        --color=*|--colour=*) COLOR="${a#*=}" ;;
+        -c|--category) need_arg "$@"; IFS=, read -ra c <<< "$2"; CATS+=("${c[@]}"); shift ;;
+        --category=*) IFS=, read -ra c <<< "${a#*=}"; CATS+=("${c[@]}") ;;
+        -f|--file) need_arg "$@"; FILES+=("$2"); shift ;;
+        --file=*) FILES+=("${a#*=}") ;;
+        --*) die "unknown option $a (see multifetch -h)" ;;
+        -?*)
+            # short options, bundled: -pu, -pctorrent, -pc torrent
+            rest="${a#-}"
+            while [[ -n "$rest" ]]; do
+                o="${rest:0:1}"; rest="${rest:1}"
+                if [[ "$o" == c || "$o" == f || "$o" == m ]]; then
+                    val="$rest"; rest=""
+                    if [[ -z "$val" ]]; then need_arg "-$o" "${2:-}"; val="$2"; shift; fi
+                    case "$o" in c) IFS=, read -ra c <<< "$val"; CATS+=("${c[@]}") ;; f) FILES+=("$val") ;; m) MAX="$val" ;; esac
+                else
+                    flag "$o" || die "unknown option -$o (see multifetch -h)"
+                fi
+            done ;;
+        *) WORDS+=("$a") ;;
+    esac
+    shift
+done
+[[ "$MAX" =~ ^[0-9]+$ ]] || die "-m takes a number"
+
+# colour: auto means a terminal that wants it
+case "$COLOR" in
+    always) C=1 ;; never) C=0 ;; auto) [[ -t 1 && -z "${NO_COLOR:-}" ]] && C=1 || C=0 ;;
+    *) die "--color takes auto, always or never" ;;
+esac
+
+ALL_CATS=$(printf '%s\n' "${SITES[@]}" "${DIRECT[@]}" | cut -d'|' -f1 | sort -u)
+if [[ " ${CATS[*]:-} " == *" list "* ]]; then printf 'web\n%s\n' "$ALL_CATS" | sort -u; exit 0; fi
+for c in "${CATS[@]}"; do
+    [[ "$c" == web ]] || grep -qxF "$c" <<< "$ALL_CATS" || die "no category \"$c\" (multifetch -c list)"
+done
+# a category asked for: true when the row's category is one of them (or none was asked for)
+want_cat() { [[ ${#CATS[@]} -eq 0 || " ${CATS[*]} " == *" $1 "* ]]; }
+
+# -i is a mode of its own whatever else is given; -p (or a pipe) makes it a table
+[[ $IPTV == 1 ]] && { [[ $MODE == print ]] && FORMAT=print; MODE=iptv; }
+case "$MODE" in
+    iptv) if [[ "$FORMAT" != table || ! -t 1 ]]; then exec "$HOME/.scripts/multifetch-iptv" --print "${WORDS[@]}"; fi
+          exec "$HOME/.scripts/multifetch-iptv" "${WORDS[@]}" ;;
+    edit)
+        mkdir -p "$(dirname "$SITES_FILE")"
+        [[ -f "$SITES_FILE" ]] || printf '# Extra domains, one per line (without https://)\n' > "$SITES_FILE"
+        exec "${EDITOR:-nvim}" "$SITES_FILE" ;;
+    sites)
+        [[ $HEADER == 1 && $FORMAT == table && $QUIET == 0 ]] && printf 'STATE\tCATEGORY\tDOMAIN\n'
+        # every domain at once (64 in flight), each given 3 s: a dead one no longer holds up the rest
+        printf '%s\n' "${SITES[@]}" | while IFS='|' read -r cat d; do want_cat "$cat" && printf '%s\t%s\n' "$cat" "$d"; done \
+            | xargs -P 64 -d '\n' -I{} bash -c 'IFS=$'"'"'\t'"'"' read -r c d <<< "$1"; if timeout 3 getent ahosts "$d" >/dev/null 2>&1; then s=ok; else s=dead; fi; printf "%s\t%s\t%s\n" "$s" "$c" "$d"' _ {} \
+            | sort -t$'\t' -k2,2 -k3,3 | while IFS=$'\t' read -r st cat d; do
+                (( QUIET )) && continue
+                case "$FORMAT" in
+                    urls) echo "$d" ;;
+                    count) : ;;
+                    json) jq -cn --arg s "$st" --arg c "$cat" --arg d "$d" '{state:$s, category:$c, domain:$d}' ;;
+                    *) printf '%s\t%s\t%s\n' "$st" "$cat" "$d" ;;
+                esac
+            done
+        exit 0 ;;
+esac
+
+# keywords: arguments, -f files, or stdin when it is a pipe and nothing else was given
+for f in "${FILES[@]}"; do
+    if [[ "$f" == - ]]; then mapfile -t more; else [[ -r "$f" ]] || die "cannot read $f"; mapfile -t more < "$f"; fi
+    for k in "${more[@]}"; do [[ -n "${k//[[:space:]]/}" ]] && KEYWORDS_IN+=("$k"); done
+done
+if [[ ${#WORDS[@]} -eq 0 && ${#FILES[@]} -eq 0 && ! -t 0 ]]; then
+    while IFS= read -r k; do [[ -n "${k//[[:space:]]/}" ]] && KEYWORDS_IN+=("$k"); done
+fi
+if (( SPLIT )); then
+    KEYWORDS=("${WORDS[@]}")
+elif [[ ${#WORDS[@]} -gt 1 ]] && ! printf '%s\n' "${WORDS[@]}" | grep -q ' '; then
+    KEYWORDS=("${WORDS[*]}")   # unquoted words: one name
+else
+    KEYWORDS=("${WORDS[@]}")   # quoted arguments: one keyword each
+fi
+KEYWORDS+=("${KEYWORDS_IN[@]}")
+if [[ ${#KEYWORDS[@]} -eq 0 ]]; then
+    [[ -t 0 ]] || die "no keyword (give one, or pipe them in)"
+    read -r -p "Keyword: " kw
+    [[ -n "$kw" ]] || exit 2
+    KEYWORDS=("$kw")
+fi
+# no mode chosen: fzf on a terminal, a table in a pipe (like ls)
+[[ -z "$MODE" ]] && { if [[ -t 1 && $OPEN == 0 ]]; then MODE=pick; else MODE=print; fi; }
+
+# emit: rows "category<TAB>label<TAB>url" on stdin, printed as --urls, --json or a
+# table; false when there was none (the exit status of every listing mode)
+emit() {
+    local n=0 cat label url
+    [[ $FORMAT == table && $HEADER == 1 && $QUIET == 0 ]] && printf 'CATEGORY\tLABEL\tURL\n'
+    [[ $FORMAT == count ]] && HEADER=0
+    while IFS=$'\t' read -r cat label url; do
+        (( MAX > 0 && n >= MAX )) && break
+        n=$((n + 1))
+        (( QUIET )) || [[ $FORMAT == count ]] && continue
+        case "$FORMAT" in
+            urls) printf '%s\n' "$url" ;;
+            json) jq -cn --arg c "$cat" --arg l "$label" --arg u "$url" '{category:$c, label:$l, url:$u}' ;;
+            *) if (( C )); then printf '\033[33m%s\033[0m\t%s\t\033[2m%s\033[0m\n' "$cat" "$label" "$url"; else printf '%s\t%s\t%s\n' "$cat" "$label" "$url"; fi ;;
+        esac
+    done
+    [[ $FORMAT == count && $QUIET == 0 ]] && echo "$n"
+    (( n > 0 ))
+}
+
+# Every search as: category \t label \t query-or-empty \t browser-url
+build_searches() {
+    local kw q p e cat dom site name tmpl enc
+    for kw in "${KEYWORDS[@]}"; do
+        q="\"$kw\""
+        for p in "${PATTERNS[@]}"; do
+            printf 'web\t%s %s\t%s\thttps://www.google.com/search?q=%s\n' "$q" "$p" "$q $p" "$(urlencode "$q $p")"
+        done
+        for e in "${SITES[@]}"; do
+            cat="${e%%|*}"; dom="${e#*|}"
+            printf '%s\t%s site:%s\t%s\thttps://www.google.com/search?q=%s\n' "$cat" "$q" "$dom" "$q site:$dom" "$(urlencode "$q site:$dom")"
+        done
+        enc="$(urlencode "$kw")"
+        for e in "${DIRECT[@]}"; do
+            cat="${e%%|*}"; site="${e#*|}"; name="${site%%|*}"; tmpl="${site#*|}"
+            printf '%s\t%s: %s\t\t%s\n' "$cat" "$name" "$kw" "${tmpl//\{\}/$enc}"
+        done
+        for p in download "free download"; do
+            printf 'web\tBing %s %s\t\thttps://www.bing.com/search?q=%s\n' "$q" "$p" "$(urlencode "$q $p")"
+            printf 'web\tYandex %s %s\t\thttps://yandex.com/search/?text=%s\n' "$q" "$p" "$(urlencode "$q $p")"
+        done
+    done
+}
+
+# the searches, only the categories asked for (-c)
+searches() { build_searches | awk -F'\t' -v cats=" ${CATS[*]:-} " 'cats == "  " || index(cats, " " $1 " ")'; }
+
+# --- discover: search the leak sites directly, then learn new hosts from the posts
+# These answer a scripted search (tested 2026-10-07). Cloudflare-fronted ones
+# (sanet, magesy, 4download, softarchive, 1337x, rutracker) need a browser.
+SEARCHABLE=(
+    "audio-warez|AudioZ|https://audioz.download/?do=search&subaction=search&story={}"
+    "audio-warez|freshstuff4you|https://freshstuff4you.com/?s={}"
+    "audio-warez|vstorrent|https://vstorrent.org/?s={}"
+    "audio-warez|plugintorrent|https://plugintorrent.com/?s={}"
+    "audio-warez|audiostorrent|https://audiostorrent.com/?s={}"
+    "audio-warez|producersbuzz|https://producersbuzz.com/?s={}"
+    "audio-warez|audiosex|https://audiosex.pro/search/?q={}"
+    "course-leak|freecoursesite|https://freecoursesite.com/?s={}"
+    "course-leak|avxhm|https://avxhm.se/search?q={}"
+    "course-leak|rlsbb|https://rlsbb.ru/?s={}"
+    "course-leak|onehack|https://onehack.us/search?q={}"
+    "music-release|0daymusic|https://0daymusic.org/?s={}"
+    # Added 2026-10-07 after "you are missing something": the course-leak
+    # indexes were listed but never searched, and these see what the others
+    # cannot - BTDigg searches torrents shared peer-to-peer (by FILE names, so
+    # a renamed course still matches), BitSearch indexes many trackers incl.
+    # ones that block scripts, Lyzem searches Telegram channels.
+    "course-leak|coursedrive|https://coursedrive.org/?s={}"
+    "course-leak|getfreecourses|https://getfreecourses.co/?s={}"
+    "course-leak|courseclub|https://courseclub.me/?s={}"
+    "course-leak|freecourseweb|https://freecourseweb.com/?s={}"
+    "course-leak|freetutorials|https://freetutorials.eu/?s={}"
+    "torrent|BTDigg|https://btdig.com/search?q={}"
+    "torrent|BitSearch|https://bitsearch.eu/search?q={}"
+    "telegram|Lyzem|https://lyzem.com/search?q={}"
+)
+# Links that are never where a leak lives.
+
+# is_known DOMAIN FILE - the domain or any parent of it is listed
+# (search.rlsbb.ru is rlsbb.ru).
+is_known() {
+    local d="$1"
+    while [[ "$d" == *.*.* || "$d" == *.* ]]; do
+        grep -qxF "$d" "$2" && return 0
+        [[ "$d" == *.*.* ]] || return 1
+        d="${d#*.}"
+    done
+    return 1
+}
+
+discover() {
+    local add="$1" kw enc e cat site name tmpl url final host page hits=0
+    mkdir -p "$DIR"
+    local out="$DIR/scan-$(date +%Y-%m-%d-%H%M%S).tsv" prev posts domains known
+    prev=$(mktemp); posts=$(mktemp); domains=$(mktemp); known=$(mktemp)
+    trap 'rm -f "$prev" "$posts" "$domains" "$known"' RETURN
+    cat "$DIR"/scan-*.tsv 2>/dev/null | cut -f3 | sort -u > "$prev"
+    for e in "${SITES[@]}"; do echo "${e#*|}"; done | sort -u > "$known"
+    for kw in "${KEYWORDS[@]}"; do
+        enc="$(urlencode "$kw")"
+        # The Pirate Bay's page is JavaScript; its JSON API is not.
+        curl -s -A "$UA" --max-time 25 "https://apibay.org/q.php?q=$enc" \
+            | jq -r '.[]? | select(.name != "No results returned") | "torrent\tThe Pirate Bay\thttps://thepiratebay.org/description.php?id=\(.id)\t\(.name)"' 2>/dev/null >> "$posts"
+        # archive.org: people upload whole courses there; its search is JSON.
+        curl -s -A "$UA" --max-time 25 "https://archive.org/advancedsearch.php?q=$enc&fl%5B%5D=identifier&fl%5B%5D=title&rows=100&output=json" \
+            | jq -r '.response.docs[]? | "file-host\tarchive.org\thttps://archive.org/details/\(.identifier)\t\(.title // .identifier | if type=="array" then .[0] else . end)"' 2>/dev/null >> "$posts"
+        for e in "${SEARCHABLE[@]}"; do
+            cat="${e%%|*}"; site="${e#*|}"; name="${site%%|*}"; tmpl="${site#*|}"
+            url="${tmpl//\{\}/$enc}"
+            printf '\r  searching %-16s' "$name" >&2
+            page=$(curl -sL -A "$UA" --max-time 25 -w '\n%{url_effective}' "$url") || continue
+            final="${page##*$'\n'}"; page="${page%$'\n'*}"
+            # A site that moved (freecoursesite -> fcsnew.net) is a new domain to watch.
+            host=$(printf '%s' "$final" | awk -F/ '{print $3}' | sed 's/^www\.//')
+            [[ -n "$host" ]] && ! is_known "$host" "$known" && printf '%s\t%s (redirect from %s)\n' "$host" "moved" "$name" >> "$domains"
+            # Posts: links naming the keyword in their address or title. The
+            # title is the link text, else a nested heading's title="" (AudioZ
+            # wraps titles in <h2>, leaving the text empty), else the address
+            # made readable. In-page "#" links (comments) and tag/search
+            # pages are not posts.
+            # One link per line first: a fixed-length grab ran into the next
+            # link and swallowed it, losing posts listed close together.
+            # Relative links (BitSearch's "/download/...") made absolute first.
+            local base; base=$(printf '%s' "$final" | grep -oE '^https?://[^/]+')
+            printf '%s' "$page" | tr '\n' ' ' | sed "s#href=\"/\([^/]\)#href=\"$base/\1#g" | sed 's/<a /\n<a /g' \
+                | grep -iE '^<a [^>]*href="https?://[^"#]+"' | cut -c1-600 \
+                | awk -v k="$kw" -v c="$cat" -v n="$name" '{
+                    url = $0; sub(/^<a [^>]*href="/, "", url); sub(/".*/, "", url)
+                    rest = $0; sub(/^<a [^>]*>/, "", rest)
+                    t = rest; sub(/<.*/, "", t); gsub(/^ +| +$/, "", t)
+                    if (t == "" && match(rest, /title="[^"]+"/)) t = substr(rest, RSTART + 7, RLENGTH - 8)
+                    sub(/^Download /, "", t)
+                    # Every word of the keyword, any order: "Schranz Production
+                    # Course" matches "schranz course"; an exact phrase did not.
+                    hay = tolower(url " " t); nw = split(tolower(k), w, /[ \t]+/); ok = 1
+                    for (j = 1; j <= nw; j++) if (w[j] != "" && !index(hay, w[j])) { ok = 0; break }
+                    if (!ok) next
+                    # A post is linked several times (thumbnail, title, "read
+                    # more"); keep the first non-empty title any of them gave.
+                    if (!(url in title)) { order[++o] = url; title[url] = "" }
+                    if (title[url] == "" && t != "") title[url] = t
+                }
+                END {
+                    for (i = 1; i <= o; i++) {
+                        u = order[i]; t = title[u]
+                        if (t == "") { t = u; sub(/\/+$/, "", t); sub(/.*\//, "", t); sub(/\.html?$/, "", t); gsub(/[-_]/, " ", t) }
+                        print c "\t" n "\t" u "\t" t
+                    }
+                }' >> "$posts"
+            sleep 1
+        done
+    done
+    echo >&2
+    # Follow each post (up to 25) to the hosts it links to.
+    sort -u -t$'\t' -k3,3 "$posts" | head -25 | while IFS=$'\t' read -r cat name url title; do
+        curl -sL -A "$UA" --max-time 20 "$url" | grep -oE 'https?://[a-zA-Z0-9.-]+\.[a-z]{2,}' \
+            | sed -E 's#https?://(www\.)?##' | sort -u \
+            | while read -r d; do is_known "$d" "$known" || [[ "$url" == *"$d"* ]] || printf '%s\tlinked from %s\n' "$d" "$name"; done >> "$domains"
+        sleep 1
+    done
+    # One rule for every source (the API ones included): all words of a
+    # keyword in the title or address. archive.org also matches descriptions,
+    # which pulled in sermons and parliamentary papers. Tor mirrors are skipped.
+    local kws; kws=$(printf '%s\n' "${KEYWORDS[@]}")
+    awk -F'\t' -v kws="$kws" 'BEGIN { nk = split(tolower(kws), K, "\n") }
+        { hay = tolower($3 " " $4)
+          for (i = 1; i <= nk; i++) { if (K[i] == "") continue
+              nw = split(K[i], w, /[ \t]+/); ok = 1
+              for (j = 1; j <= nw; j++) if (w[j] != "" && !index(hay, w[j])) { ok = 0; break }
+              if (ok) { print; next } } }' "$posts" > "$posts.f" && mv "$posts.f" "$posts"
+
+    # Report + record the posts like a scan, so --new work on them.
+    local new=0
+    while IFS=$'\t' read -r cat name url title; do
+        hits=$((hits + 1)); flag=""
+        grep -qxF "$url" "$prev" || { flag=NEW; new=$((new + 1)); }
+        printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$cat" "$url" "$title" "$flag" >> "$out"
+    done < <(sort -u -t$'\t' -k3,3 "$posts")
+    if [[ "$hits" -gt 0 ]]; then
+        echo "== $hits posts mention \"${KEYWORDS[*]}\" ($new new) -> $out"
+        awk -F'\t' '{printf "  %s%-12s %s\n      %s\n", ($5=="NEW" ? "NEW " : "    "), $2, $4, $3}' "$out" | sed 's/&#8211;/-/g; s/&#038;/\&/g'
+    else
+        echo "== no posts mention \"${KEYWORDS[*]}\" on the searchable leak sites"
+    fi
+    local found=$hits
+    if [[ -s "$domains" ]]; then
+        echo "== domains seen in leaks but not in your site list (check before adding; stores show up too):"
+        sort "$domains" | awk -F'\t' '{c[$1]++; w[$1]=$2} END {for (d in c) printf "  %-28s %3d x  %s\n", d, c[d], w[d]}' | sort -k2 -rn
+        if [[ "$add" == 1 ]]; then
+            mkdir -p "$(dirname "$SITES_FILE")"
+            [[ -f "$SITES_FILE" ]] || printf '# Extra domains, one per line (without https://)\n' > "$SITES_FILE"
+            cut -f1 "$domains" | sort -u | while read -r d; do
+                grep -qxF "$d" "$SITES_FILE" || echo "$d   # discovered $(date +%F)" >> "$SITES_FILE"
+            done
+            echo "== added to $SITES_FILE (remove any legitimate stores with: multifetch -e)"
+        else
+            echo "   add them with: multifetch --discover --add \"${KEYWORDS[*]}\""
+        fi
+    fi
+    (( found > 0 ))
+}
+
+if [[ "$MODE" == discover ]]; then
+    DIR="$DATA_DIR/$(slug "${KEYWORDS[0]}")"
+    discover "$ADD"
+    exit $?
+fi
+
+# --- print: every search as "category<TAB>label<TAB>url", for scripts/pipes ----
+if [[ "$MODE" == print || $OPEN == 1 ]]; then
+    if (( OPEN )); then
+        OPENER=xdg-open; command -v xdg-open >/dev/null || OPENER=open
+        n=0
+        while IFS=$'\t' read -r _ _ _ url; do "$OPENER" "$url" >/dev/null 2>&1 & n=$((n + 1)); sleep 0.8; done < <(searches)
+        (( n > 0 )) && exit 0 || exit 1
+    fi
+    searches | awk -F'\t' '{print $1 "\t" $2 "\t" $4}' | emit && exit 0 || exit 1
+fi
+
+# --- pick: the original fzf flow, now grouped by category ----------------------
+if [[ "$MODE" == pick ]]; then
+    command -v fzf >/dev/null || die "fzf is required"
+    OPENER=xdg-open; command -v xdg-open >/dev/null || OPENER=open
+    if command -v wl-copy >/dev/null; then CLIP=wl-copy; elif command -v xclip >/dev/null; then CLIP="xclip -selection clipboard"; else CLIP="cat >/dev/null"; fi
+    LINES=$(searches | awk -F'\t' '{
+        c = $1; col = (c=="web") ? 34 : (c=="course-leak") ? 31 : (c=="audio-warez") ? 35 : (c=="torrent") ? 33 : (c=="file-host") ? 36 : (c=="telegram") ? 32 : (c=="platform") ? 94 : (c=="music-release") ? 95 : 37
+        printf "\033[%dm%-12s\033[0m %s\t%s\n", col, c, $2, $4 }')
+    while true; do
+        sel="$(printf '%s\n' "$LINES" | fzf --ansi --multi --delimiter=$'\t' --with-nth=1 \
+            --prompt="multifetch › " \
+            --header="Enter open · Tab mark · Ctrl-A all · Ctrl-Y copy URL · Esc quit" \
+            --preview='echo {2}' --preview-window=down,2,wrap \
+            --bind="ctrl-a:select-all" --bind="ctrl-y:execute-silent(echo -n {2} | $CLIP)+bell")" || break
+        while IFS=$'\t' read -r _ url; do
+            [[ -n "$url" ]] && "$OPENER" "$url" >/dev/null 2>&1 &
+            sleep 0.8
+        done <<< "$sel"
+    done
+    exit 0
+fi
+
+# --- scan: every query through the Brave Search API ----------------------------
+KEY_SLUG=$(slug "${KEYWORDS[0]}")
+DIR="$DATA_DIR/$KEY_SLUG"
+
+latest() { ls -1 "$DIR"/scan-*.tsv 2>/dev/null | tail -1; }
+
+if [[ "$MODE" == scan ]]; then
+    BRAVE_API_KEY="${BRAVE_API_KEY:-$(grep -E '^BRAVE_API_KEY=' "$KEYS_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'')}"
+    # no Brave key: the searches run in your own browser (tela-zen agent tab, zen-search)
+    if [[ -z "$BRAVE_API_KEY" ]]; then
+        command -v zen-search >/dev/null || die "no BRAVE_API_KEY and no zen-search (tela-zen's agent control) to search with"
+    fi
+    mkdir -p "$DIR"
+    out="$DIR/scan-$(date +%Y-%m-%d-%H%M).tsv"
+    prev=$(mktemp); trap 'rm -f "$prev"' EXIT
+    cat "$DIR"/scan-*.tsv 2>/dev/null | cut -f3 | sort -u > "$prev"
+    queries=$(searches | awk -F'\t' '$3 != ""' )
+    total=$(printf '%s\n' "$queries" | wc -l); n=0; hits=0; new=0
+    match=$(printf '%s\n' "${KEYWORDS[@]}" | tr '[:upper:]' '[:lower:]' | paste -sd'|')
+    if [[ -z "$BRAVE_API_KEY" ]]; then
+        # all queries in one browser tab; each hit tagged with its query, matched back to its category
+        declare -A CAT_OF
+        while IFS=$'\t' read -r cat _ query _; do CAT_OF[$query]="$cat"; done <<< "$queries"
+        echo "  searching $total queries in your browser (an agent tab)…" >&2
+        while IFS=$'\t' read -r url title query; do
+            [[ -n "$url" ]] || continue
+            printf '%s %s' "$title" "$url" | tr '[:upper:]' '[:lower:]' | grep -qE "$match" || continue
+            hits=$((hits + 1)); flag=""
+            grep -qxF "$url" "$prev" || { flag=NEW; new=$((new + 1)); }
+            printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "${CAT_OF[$query]:-web}" "$url" "$title" "$flag" >> "$out"
+        done < <(printf '%s\n' "$queries" | cut -f3 | zen-search -n 400)
+    else
+    while IFS=$'\t' read -r cat label query _; do
+            n=$((n + 1)); printf '\r  %d/%d  %-60.60s' "$n" "$total" "$label" >&2
+            resp=$(curl -s --max-time 20 -G "https://api.search.brave.com/res/v1/web/search" \
+                -H "Accept: application/json" -H "X-Subscription-Token: $BRAVE_API_KEY" \
+                --data-urlencode "q=$query" --data-urlencode "count=20")
+            if printf '%s' "$resp" | jq -e '.type == "ErrorResponse"' >/dev/null 2>&1; then
+                echo >&2; die "Brave API error: $(printf '%s' "$resp" | jq -r '.error.detail // .error.code')"
+            fi
+            # Keep only results that actually mention the keyword (title, URL or snippet).
+            while IFS=$'\t' read -r url title; do
+                [[ -n "$url" ]] || continue
+                hits=$((hits + 1))
+                flag=""; grep -qxF "$url" "$prev" || { flag="NEW"; new=$((new + 1)); }
+                printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$cat" "$url" "$title" "$flag" >> "$out"
+            done < <(printf '%s' "$resp" | jq -r --arg m "$match" '
+                .web.results[]? | select(((.title // "") + " " + (.url // "") + " " + (.description // "")) | ascii_downcase | test($m))
+                | [.url, (.title // "" | gsub("\t"; " "))] | @tsv' 2>/dev/null)
+            sleep 1.1   # free tier: 1 request per second
+        done <<< "$queries"
+    fi
+    echo >&2
+    if [[ -f "$out" ]]; then
+        sort -u -t$'\t' -k3,3 "$out" -o "$out"
+        echo "$(wc -l < "$out") unique hits, $new new since earlier scans -> $out"
+        (( QUIET )) || awk -F'\t' '$5=="NEW" {printf "  NEW  %-12s %s\n       %s\n", $2, $3, $4}' "$out"
+        exit 0
+    fi
+    (( QUIET )) || echo "No hits for: ${KEYWORDS[*]}" >&2
+    exit 1
+fi
+
+# --- new: what the latest scan found that no earlier one did -------------------
+if [[ "$MODE" == new ]]; then
+    f=$(latest); [[ -n "$f" ]] || die "no scans yet for \"${KEYWORDS[0]}\" - run: multifetch --scan \"${KEYWORDS[0]}\""
+    awk -F'\t' '$5=="NEW" {print $2 "\t" $4 "\t" $3}' "$f" | emit && exit 0
+    (( QUIET )) || echo "nothing new in $f" >&2
+    exit 1
+fi
+
+    

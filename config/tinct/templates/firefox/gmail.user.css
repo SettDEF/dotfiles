@@ -1,0 +1,145 @@
+/* ==UserStyle==
+@name           tinct Material You - Gmail
+@namespace      tinct-quickshell
+@version        1.0.1
+@description    Material You theme for Gmail (mail.google.com) driven by tinct. Maps Google's Material 3 tokens to tinct's --m3-* palette.
+@author         caesar
+@updateURL      http://localhost:8787/gmail.user.css
+==/UserStyle== */
+
+/* --- Gmail: Google Material 3 tokens --- */
+@-moz-document domain("mail.google.com") {
+    :root, html, body {
+        --gm3-sys-color--surface: var(--m3-surface) !important;
+        --gm3-sys-color--surface-dim: var(--m3-surface-dim) !important;
+        --gm3-sys-color--surface-bright: var(--m3-surface-bright) !important;
+        --gm3-sys-color--surface-container-lowest: var(--m3-surface-container-lowest) !important;
+        --gm3-sys-color--surface-container-low: var(--m3-surface-container-low) !important;
+        --gm3-sys-color--surface-container: var(--m3-surface-container) !important;
+        --gm3-sys-color--surface-container-high: var(--m3-surface-container-high) !important;
+        --gm3-sys-color--surface-container-highest: var(--m3-surface-container-highest) !important;
+        --gm3-sys-color--on-surface: var(--m3-text) !important;
+        --gm3-sys-color--on-surface-variant: var(--m3-text-variant) !important;
+        --gm3-sys-color--inverse-surface: var(--m3-inverse-surface) !important;
+        --gm3-sys-color--inverse-on-surface: var(--m3-inverse-on-surface) !important;
+        --gm3-sys-color--outline: var(--m3-outline) !important;
+        --gm3-sys-color--outline-variant: var(--m3-outline-variant) !important;
+        --gm3-sys-color--primary: var(--m3-primary) !important;
+        --gm3-sys-color--on-primary: var(--m3-on-primary) !important;
+        --gm3-sys-color--primary-container: var(--m3-primary-container) !important;
+        --gm3-sys-color--on-primary-container: var(--m3-on-primary-container) !important;
+        --gm3-sys-color--secondary: var(--m3-secondary) !important;
+        --gm3-sys-color--on-secondary: var(--m3-on-secondary) !important;
+        --gm3-sys-color--secondary-container: var(--m3-secondary-container) !important;
+        --gm3-sys-color--on-secondary-container: var(--m3-on-secondary-container) !important;
+        --gm3-sys-color--tertiary: var(--m3-tertiary) !important;
+        --gm3-sys-color--tertiary-container: var(--m3-tertiary-container) !important;
+        --gm3-sys-color--on-tertiary-container: var(--m3-on-tertiary-container) !important;
+        --gm3-sys-color--error: var(--m3-error) !important;
+        --gm3-sys-color--on-error: var(--m3-on-error) !important;
+        --gm3-sys-color--error-container: var(--m3-error-container, var(--m3-error)) !important;
+        --gm3-sys-color--on-error-container: var(--m3-on-error, var(--m3-text)) !important;
+    }
+
+    /* Fallback backgrounds */
+    body, .nH, .aeF, .aeN, .bkK, .bkL, .bkM, .bkN, .aKB, .aKC {
+        background-color: var(--m3-surface) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Top bar / header */
+    .gb_ua, .gb_va, .gb_8d, header[role="banner"], .nH .nH .no, div[role="banner"] {
+        background-color: var(--m3-surface-container) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Sidebar / navigation */
+    .TK, .aim, .n3, .n4, .n6, .TO, .nZ, .byY, nav[role="navigation"] {
+        background-color: var(--m3-surface-container-low) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Selected nav item */
+    .aim.ait, .n3.ait, .selected, [aria-selected="true"] {
+        background-color: var(--m3-secondary-container) !important;
+        color: var(--m3-on-secondary-container) !important;
+    }
+
+    /* Email list */
+    .zA, .x7, .yO, .xY, .zE, tr.zA {
+        background-color: var(--m3-surface) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Hovered email */
+    .zA:hover, .x7:hover {
+        background-color: var(--m3-surface-container-high) !important;
+    }
+
+    /* Selected email */
+    .zA.x7, .zA.yO, .zA.xY, .zE.x7 {
+        background-color: var(--m3-secondary-container) !important;
+    }
+
+    /* Compose button */
+    .T-I, .T-I-KE, .L3, a[role="button"][href*="compose"] {
+        background-color: var(--m3-primary-container) !important;
+        color: var(--m3-on-primary-container) !important;
+        border-radius: 16px !important;
+    }
+
+    /* Search bar */
+    .gb_jf, .gb_if, input[aria-label*="Search"], .gbqfif {
+        background-color: var(--m3-surface-container-high) !important;
+        color: var(--m3-text) !important;
+        border-color: var(--m3-outline-variant) !important;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--m3-surface) !important; }
+    ::-webkit-scrollbar-thumb { background: var(--m3-outline-variant) !important; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--m3-outline) !important; }
+
+    /* Links */
+    a, .aQH { color: var(--m3-primary) !important; }
+
+    /* Buttons */
+    button, .T-I, [role="button"] {
+        color: var(--m3-text) !important;
+    }
+
+    /* Dividers */
+    .aeH, .aeJ, hr { border-color: var(--m3-outline-variant) !important; }
+}
+
+/* --- Gmail: inbox / conversation view tweaks --- */
+@-moz-document domain("mail.google.com") {
+    /* Message body background */
+    .aHU, .aHT, .ii, .gt, .g6, .adn, .adf {
+        background-color: var(--m3-surface-container-low) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Quoted text */
+    .gmail_quote, .gmail_extra { color: var(--m3-text-variant) !important; }
+
+    /* Labels / chips */
+    .ar, .as, .at, .av, .aw, .ax {
+        background-color: var(--m3-secondary-container) !important;
+        color: var(--m3-on-secondary-container) !important;
+        border-radius: 8px !important;
+    }
+
+    /* Attachment cards */
+    .aZi, .aZj, .aQH, .aQI {
+        background-color: var(--m3-surface-container-high) !important;
+        border-color: var(--m3-outline-variant) !important;
+        color: var(--m3-text) !important;
+    }
+
+    /* Footer / status bar */
+    .nH .nH .no, .byY, .byZ {
+        background-color: var(--m3-surface-container) !important;
+    }
+}

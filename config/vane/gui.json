@@ -1,0 +1,55 @@
+{
+    "buildings": true,
+    "camera": {
+        "bearing": 244.36328125,
+        "lat": 59.6377127097505,
+        "lon": 26.49636741989687,
+        "tilt": 50,
+        "zoom": 3.203117410817188
+    },
+    "clockSeconds": true,
+    "cursorClock": true,
+    "fieldOpacity": 0.62,
+    "hiddenAddonLayers": [
+    ],
+    "home": null,
+    "isobars": false,
+    "language": "auto",
+    "layer": "pressure",
+    "mapBase": "map",
+    "mapLanguage": "ui",
+    "night": true,
+    "places": [
+        {
+            "country": "Germany",
+            "lat": 52.52,
+            "lon": 13.405,
+            "name": "Berlin",
+            "tz": "Europe/Berlin"
+        },
+        {
+            "country": "United States",
+            "lat": 40.71,
+            "lon": -74.01,
+            "name": "New York",
+            "tz": "America/New_York"
+        },
+        {
+            "country": "Japan",
+            "lat": 35.68,
+            "lon": 139.69,
+            "name": "Tokyo",
+            "tz": "Asia/Tokyo"
+        }
+    ],
+    "relief": false,
+    "sidebarCollapsed": true,
+    "streakDensity": 1,
+    "streaks": true,
+    "timeFormat": "24h",
+    "units": "metric",
+    "windowHeight": 950,
+    "windowWidth": 1590,
+    "worldClocks": true,
+    "zoomSpeed": 0.75
+}

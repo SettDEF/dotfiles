@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# lidrun — run long tasks that survive lid-close / idle / sleep
+#
+# Each preset wraps its command in `systemd-inhibit` so closing the lid won't
+# trigger suspend, the screen idle timer won't sleep, and logout won't kill
+# the job. Output is teed to ~/.cache/lidrun/<name>-<ts>.log so you can read
+# it back later with `lidrun tail`.
+#
+# Usage:
+#   lidrun <preset> [args...]      # foreground (Ctrl-C to abort)
+#   lidrun -d <preset> [args...]   # detach: run in background via setsid
+#   lidrun list                    # show all presets
+#   lidrun status                  # show currently-held inhibitors + jobs
+#   lidrun tail [preset]           # tail latest log (optionally filter)
+#   lidrun kill <preset>           # kill detached preset by name
+#
+# Add your own: just drop a new case in the dispatch block below.
+
+set -u
+
+LOG_DIR="$HOME/.cache/lidrun"
+mkdir -p "$LOG_DIR"
+
+# ── core runner ───────────────────────────────────────────────────────────
+# Wraps the actual command in systemd-inhibit so:
+#   handle-lid-switch — closing the lid does nothing
+#   sleep             — suspend requests are blocked
+#   idle              — idle timer can't trigger sleep
+#   shutdown          — graceful shutdown waits for the job
+# Watch /proc/acpi/button/lid/*/state; when the lid is closed, turn the
+# panel off via Hyprland's `dpms off`. When opened, turn it on.
+#
+# Why we re-assert every poll: hypridle has its own `on-resume = dpms on`
+# wired to any input event. The touchpad often emits one last press as the
+# lid hits the base → hypridle turns the screen back on a second after we
+# blanked it. We additionally SIGSTOP hypridle while the inhibited job runs
+# (see _run) — this loop is the second line of defence.
+_lid_watcher() {
+    local lid_file
+    lid_file=$(ls /proc/acpi/button/lid/*/state 2>/dev/null | head -1)
+    [[ -z "$lid_file" ]] && return
+    local parent="$1"
+    while kill -0 "$parent" 2>/dev/null; do
+        local state
+        state=$(awk '{print $NF}' "$lid_file" 2>/dev/null)
+        if [[ "$state" == "closed" ]]; then
+            # Re-assert every cycle — cheap no-op if already off.
+            hyprctl dispatch dpms off 2>/dev/null
+        elif [[ "$state" == "open" ]]; then
+            hyprctl dispatch dpms on 2>/dev/null
+        fi
+        sleep 1
+    done
+    hyprctl dispatch dpms on 2>/dev/null
+}
+
+_run() {
+    local name="$1"; shift
+    local desc="$1"; shift
+    local ts; ts=$(date +%Y%m%d-%H%M%S)
+    local log="$LOG_DIR/${name}-${ts}.log"
+
+    echo "▶ lidrun [$name] $desc" | tee "$log"
+    echo "  log: $log" | tee -a "$log"
+    echo "  cmd: $*" | tee -a "$log"
+    echo "──────────────────────────────────────────────" | tee -a "$log"
+
+    # Pause hypridle for the duration of the job. Without this, hypridle's
+    # `on-resume = dpms on` fights our `dpms off` on every stray input event.
+    # SIGCONT on exit. If hypridle isn't running, both calls are silent no-ops.
+    pkill -STOP -x hypridle 2>/dev/null
+
+    if [[ "${DETACH:-0}" == "1" ]]; then
+        setsid bash -c "
+            systemd-inhibit \
+                --what=handle-lid-switch:sleep:idle:shutdown \
+                --who='lidrun:$name' \
+                --why='$desc' \
+                --mode=block \
+                $(printf '%q ' "$@") >>'$log' 2>&1 &
+            inhibit_pid=\$!
+            $(declare -f _lid_watcher)
+            _lid_watcher \$inhibit_pid &
+            wait \$inhibit_pid
+            # Resume hypridle once the job is done.
+            pkill -CONT -x hypridle 2>/dev/null
+            hyprctl dispatch dpms on 2>/dev/null
+            echo '──── finished '\$(date +%H:%M:%S)' ────' >>'$log'
+        " </dev/null >/dev/null 2>&1 &
+        disown
+        echo "  detached → pid $!"
+    else
+        _lid_watcher $$ &
+        local watcher=$!
+        trap "kill $watcher 2>/dev/null;
+              pkill -CONT -x hypridle 2>/dev/null;
+              hyprctl dispatch dpms on 2>/dev/null" EXIT
+        systemd-inhibit \
+            --what=handle-lid-switch:sleep:idle:shutdown \
+            --who="lidrun:$name" \
+            --why="$desc" \
+            --mode=block \
+            "$@" 2>&1 | tee -a "$log"
+        kill $watcher 2>/dev/null
+        pkill -CONT -x hypridle 2>/dev/null
+        trap - EXIT
+    fi
+}
+
+# ── help text ─────────────────────────────────────────────────────────────
+_list() {
+    cat <<'EOF'
+lidrun presets — keep these running even when the lid is closed:
+
+  System maintenance
+   1. update          paru -Syu (full system update)
+   2. mirrors         refresh pacman mirrorlist (reflector)
+   3. clean-pkg       paru -Sc + paccache cleanup
+   4. orphans         remove orphaned packages
+   5. cache-clean     wipe ~/.cache + thumbnail cache
+   6. journal-vacuum  shrink journald to 200M
+   7. trash-empty     empty trash + clear ~/.local/share/Trash
+   8. docker-prune    docker system prune -af --volumes
+   9. disk-report     du -sh of common big dirs → log
+
+  Backups & sync
+  10. backup-config   rsync ~/.config + ~/.scripts to /mnt/storage
+  11. backup-home     full rsync of $HOME to /mnt/storage/home-mirror
+  12. backup-secure   rsync ~/.secure (API keys etc) to /mnt/storage
+  13. rclone <remote> rclone sync to a named remote
+  14. git-pull-all <dir>  git pull every repo under <dir>
+
+  Media / downloads
+  15. yt <url...>     yt-dlp best-quality download
+  16. yt-mp3 <url...> yt-dlp audio only → mp3
+  17. ffmpeg-batch <dir> re-encode every .mp4 in <dir> to h265
+  18. img-optim <dir> oxipng + jpegoptim every image under <dir>
+
+  Build / dev
+  19. cargo-update    cargo install-update -a
+  20. npm-update <dir> npm update in <dir>
+  21. build <dir>     run `make` (or `cargo build --release`, or `npm run build`)
+  22. ai-train <cmd...> arbitrary long-running training command
+
+  Quickshell / hypr-specific
+  23. theme-rebuild   re-render every tinct theme target
+  24. firefox-vacuum  SQLite VACUUM on Firefox profile dbs (claws back disk)
+  25. wall-cycle      cycle wallpaper every 15min for the night
+  26. quickshell-stress reload qs every 30s for 50 iterations (soak test)
+
+  Free-form
+  27. run <cmd...>    arbitrary command, lid-safe + logged
+  28. shell           interactive bash, lid-safe (good for tmux/ssh)
+
+Options:
+   -d        detach (run in background, returns immediately)
+EOF
+}
+
+# ── parse -d flag ─────────────────────────────────────────────────────────
+DETACH=0
+if [[ "${1:-}" == "-d" ]]; then DETACH=1; shift; fi
+
+cmd="${1:-list}"; shift || true
+
+case "$cmd" in
+    # ── meta ──────────────────────────────────────────────────────────────
+    list|help|-h|--help) _list ;;
+
+    status)
+        echo "── active systemd inhibitors (lidrun) ──"
+        systemd-inhibit --list --no-pager 2>/dev/null | awk '/lidrun/||NR==1'
+        echo
+        echo "── detached lidrun jobs ──"
+        pgrep -af 'systemd-inhibit.*lidrun:' || echo "  (none)"
+        ;;
+
+    tail)
+        f=$(ls -t "$LOG_DIR"/${1:-*}-*.log 2>/dev/null | head -1)
+        [[ -z "$f" ]] && { echo "no logs match"; exit 1; }
+        echo "── tailing $f ──"
+        tail -f "$f"
+        ;;
+
+    kill)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun kill <preset>"; exit 1; }
+        pkill -f "systemd-inhibit.*lidrun:$1" && echo "killed lidrun:$1" \
+            || echo "no matching job"
+        ;;
+
+    # ── system maintenance ───────────────────────────────────────────────
+    update)        _run update       "Full system update"           paru -Syu --noconfirm ;;
+    mirrors)       _run mirrors      "Refresh pacman mirrors"       sudo reflector --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
+    clean-pkg)     _run clean-pkg    "Clean package caches"         bash -c "paru -Sc --noconfirm; paccache -rk2" ;;
+    orphans)       _run orphans      "Remove orphaned packages"     bash -c "pkgs=\$(pacman -Qtdq); [[ -n \$pkgs ]] && sudo pacman -Rns --noconfirm \$pkgs || echo 'no orphans'" ;;
+    cache-clean)   _run cache-clean  "Clear ~/.cache + thumbnails"  bash -c "rm -rf ~/.cache/thumbnails/* ~/.cache/mesa_shader_cache* ~/.cache/yarn ~/.cache/pip 2>/dev/null; echo done" ;;
+    journal-vacuum)_run journal-vac  "Shrink journald"              sudo journalctl --vacuum-size=200M ;;
+    trash-empty)   _run trash-empty  "Empty trash"                  bash -c "rm -rf ~/.local/share/Trash/*/* 2>/dev/null; echo done" ;;
+    docker-prune)  _run docker-prune "Docker system prune"          docker system prune -af --volumes ;;
+    disk-report)   _run disk-report  "Top disk hogs in HOME"        bash -c "du -sh ~/.cache ~/.local ~/.mozilla ~/.config /mnt/storage ~/Downloads ~/Documents 2>/dev/null | sort -h" ;;
+
+    # ── backups & sync ───────────────────────────────────────────────────
+    backup-config) _run backup-cfg   "Backup ~/.config to /mnt/storage" \
+                       rsync -aHAXv --delete --exclude='.cache' \
+                            "$HOME/.config/" "$HOME/.scripts/" \
+                            /mnt/storage/config-backups/latest/ ;;
+    backup-home)   _run backup-home  "Full HOME mirror to /mnt/storage" \
+                       rsync -aHAXv --delete \
+                            --exclude='.cache' --exclude='.local/share/Trash' \
+                            --exclude='node_modules' --exclude='target' \
+                            "$HOME/" /mnt/storage/home-mirror/ ;;
+    backup-secure) _run backup-sec   "Backup ~/.secure to /mnt/storage" \
+                       rsync -aHAXv --delete "$HOME/.secure/" /mnt/storage/secure-backup/ ;;
+    rclone)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun rclone <remote-name>"; exit 1; }
+        _run "rclone-$1" "rclone sync to $1" rclone sync "$HOME" "$1:home-mirror" --progress ;;
+    git-pull-all)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun git-pull-all <dir>"; exit 1; }
+        _run git-pull "git pull every repo under $1" bash -c "
+            find '$1' -maxdepth 4 -type d -name .git -printf '%h\n' | while read -r r; do
+                echo \"── \$r\"; git -C \"\$r\" pull --ff-only || true
+            done" ;;
+
+    # ── media / downloads ────────────────────────────────────────────────
+    yt)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun yt <url> [url...]"; exit 1; }
+        _run yt "yt-dlp $*" yt-dlp -f 'bv*+ba/best' --merge-output-format mp4 -o "$HOME/Downloads/%(title)s.%(ext)s" "$@" ;;
+    yt-mp3)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun yt-mp3 <url> [url...]"; exit 1; }
+        _run yt-mp3 "yt-dlp audio $*" yt-dlp -x --audio-format mp3 -o "$HOME/Music/%(title)s.%(ext)s" "$@" ;;
+    ffmpeg-batch)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun ffmpeg-batch <dir>"; exit 1; }
+        _run ffmpeg-batch "re-encode .mp4 in $1 to h265" bash -c "
+            find '$1' -type f -name '*.mp4' | while read -r f; do
+                out=\"\${f%.mp4}.h265.mp4\"; [[ -f \$out ]] && continue
+                ffmpeg -i \"\$f\" -c:v libx265 -crf 28 -c:a copy \"\$out\"
+            done" ;;
+    img-optim)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun img-optim <dir>"; exit 1; }
+        _run img-optim "optimise images in $1" bash -c "
+            find '$1' -type f -iname '*.png' -exec oxipng -o4 --strip safe {} +
+            find '$1' -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) -exec jpegoptim --strip-all {} +" ;;
+
+    # ── build / dev ──────────────────────────────────────────────────────
+    cargo-update)  _run cargo-update "cargo install-update -a"     cargo install-update -a ;;
+    npm-update)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun npm-update <dir>"; exit 1; }
+        _run npm-update "npm update in $1" bash -c "cd '$1' && npm update" ;;
+    build)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun build <dir>"; exit 1; }
+        _run build "build $1" bash -c "
+            cd '$1' || exit 1
+            if   [[ -f Cargo.toml ]]; then cargo build --release
+            elif [[ -f package.json ]]; then npm run build
+            elif [[ -f Makefile  ]]; then make -j\$(nproc)
+            elif [[ -f meson.build ]]; then meson setup build && meson compile -C build
+            else echo 'no recognised build system'; exit 1; fi" ;;
+    ai-train)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun ai-train <cmd...>"; exit 1; }
+        _run ai-train "training: $*" "$@" ;;
+
+    # ── quickshell / hypr ────────────────────────────────────────────────
+    theme-rebuild) _run tinct "re-render tinct theme targets" tinct render ;;
+    firefox-vacuum)
+        _run ffvacuum "VACUUM Firefox SQLite dbs" bash -c '
+            for db in ~/.mozilla/firefox/*.default*/places.sqlite ~/.mozilla/firefox/*.default*/favicons.sqlite ~/.mozilla/firefox/*.default*/cookies.sqlite; do
+                [[ -f $db ]] || continue
+                echo "── $db"
+                sqlite3 "$db" "VACUUM;" && echo "  ok"
+            done' ;;
+    wall-cycle)    _run wall-cycle "cycle wallpaper every 15min × 8h" bash -c '
+            for i in $(seq 1 32); do
+                w=$(find ~/Pictures/wallpapers -type f \( -iname "*.png" -o -iname "*.jpg" \) | shuf -n1)
+                echo "[$i] $w"
+                swww img "$w" --transition-type any 2>/dev/null \
+                    || hyprctl hyprpaper preload "$w" >/dev/null
+                sleep 900
+            done' ;;
+    quickshell-stress) _run qs-stress "reload qs 50 times" bash -c '
+            for i in $(seq 1 50); do
+                echo "── reload $i"
+                pkill -USR1 quickshell || qs -c ii &
+                sleep 30
+            done' ;;
+
+    # ── free-form ────────────────────────────────────────────────────────
+    run)
+        [[ -z "${1:-}" ]] && { echo "usage: lidrun run <cmd...>"; exit 1; }
+        _run custom "ad-hoc: $*" "$@" ;;
+    shell)         _run shell "lid-safe interactive bash" bash -i ;;
+
+    *) echo "unknown preset: $cmd"; echo; _list; exit 1 ;;
+esac

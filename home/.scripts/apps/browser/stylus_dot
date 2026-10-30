@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+NORMAL_CURSOR="left_ptr"
+HOVER_CURSOR="dot"
+
+sudo libinput debug-events | while read -r line; do
+  if echo "$line" | grep -q "TABLET_TOOL_PROXIMITY.*in"; then
+    xsetroot -cursor_name "$HOVER_CURSOR"
+  elif echo "$line" | grep -q "TABLET_TOOL_PROXIMITY.*out"; then
+    xsetroot -cursor_name "$NORMAL_CURSOR"
+  fi
+done

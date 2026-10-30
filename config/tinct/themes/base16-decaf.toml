@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Decaf"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#2d2d2d"
+grey2 = "#393939"
+grey3 = "#515151"
+grey4 = "#777777"
+grey5 = "#b4b7b4"
+grey6 = "#cccccc"
+grey7 = "#e0e0e0"
+grey8 = "#ffffff"
+red1 = "#ff7f7b"
+orange1 = "#ffbf70"
+yellow1 = "#ffd67c"
+green1 = "#beda78"
+blue1 = "#bed6ff"
+blue2 = "#90bee1"
+purple1 = "#efb3f7"
+red2 = "#ff93b3"
+
+[roles]
+background = "#2d2d2d"
+foreground = "#ffffff"
+primary = "#ff7f7b"

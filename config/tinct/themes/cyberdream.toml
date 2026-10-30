@@ -1,0 +1,25 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Cyberdream"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#16181a"
+grey2 = "#1e2124"
+grey3 = "#3c4048"
+grey4 = "#ffffff"
+grey5 = "#7b8496"
+blue1 = "#5ea1ff"
+green1 = "#5eff6c"
+cyan1 = "#5ef1ff"
+red1 = "#ff6e5e"
+yellow1 = "#f1ff5e"
+purple1 = "#ff5ef1"
+red2 = "#ff5ea0"
+orange1 = "#ffbd5e"
+purple2 = "#bd5eff"
+
+[roles]
+background = "#16181a"
+foreground = "#ffffff"
+primary = "#ff5ef1"

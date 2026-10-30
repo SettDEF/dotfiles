@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Measure which Claude Code skill a set of plain-English queries actually triggers.
+
+WHY THIS EXISTS
+  A skill's description is the only thing deciding whether it gets consulted, and reading it tells
+  you nothing about whether it fires. Phrases written into a description verbatim still miss.
+
+  skill-creator ships a trigger optimiser, and it cannot measure a skill that is already INSTALLED:
+  it plants a duplicate slash command named "<skill>-skill-<uuid>" and counts only that name, so
+  when the model reaches for the real skill the run scores zero. It also has no health check on the
+  claude binary — when ~/.local/bin/claude was a 232 MB zero-filled file from a truncated update,
+  all 180 invocations died instantly and the report was indistinguishable from "never triggers".
+  A uniform zero across every query INCLUDING the negatives is the signature of a dead harness.
+
+  So: this checks the binary first, then runs each query through `claude -p` and records the first
+  Skill tool call BY NAME. --max-turns 1 is what makes it affordable — the model makes one decision
+  and stops instead of carrying out the whole task.
+
+WRITES
+  Nothing, unless -o is given. Starts no background processes.
+
+EVAL FILE
+  [{"query": "whats actually bad about the mixer", "should_trigger": true}, ...]
+  should_trigger means "should reach the skill named by --skill".
+"""
+import argparse, concurrent.futures as cf, json, os, shutil, subprocess, sys
+
+
+def check_claude(binary):
+    path = shutil.which(binary)
+    if not path:
+        sys.exit(f"error: {binary!r} is not on PATH.\n"
+                 f"       Point --claude at a working build, e.g. "
+                 f"~/.local/share/claude/versions/<version>")
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=60)
+    except OSError as e:
+        sys.exit(f"error: {path} will not execute ({e}).\n"
+                 f"       A truncated update leaves a zero-filled file of the right size here.\n"
+                 f"       Check: python3 -c \"d=open('{path}','rb').read(4096); "
+                 f"print('CORRUPT' if d.count(0)==len(d) else 'ok')\"")
+    if out.returncode != 0:
+        sys.exit(f"error: {path} --version failed: {(out.stderr or out.stdout).strip()[:200]}")
+    return path, out.stdout.strip()
+
+
+def first_skill(claude, query, model, cwd, timeout):
+    """The name in the first Skill tool call this query produces, or None."""
+    cmd = [claude, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
+    if model:
+        cmd += ["--model", model]
+    cmd.append(query)
+    # CLAUDECODE upsets a nested `claude -p`; drop it for the child only.
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env)
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT"
+    for line in p.stdout.splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("type") == "assistant":
+            for c in e["message"].get("content", []):
+                if c.get("type") == "tool_use" and c.get("name") == "Skill":
+                    return c.get("input", {}).get("skill")
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Measure which skill a set of queries actually triggers.",
+        epilog="example:\n"
+               "  skill-trigger-check evals.json --skill whats-weak \\\n"
+               "      --cwd ~/projects/myapp --model claude-opus-5\n\n"
+               "Each query costs one model decision (--max-turns 1), not a whole task.\n"
+               "Queries that name a project only make sense with --cwd set to that project.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("evals", help="JSON list of {query, should_trigger}")
+    ap.add_argument("--skill", required=True, help="skill name that should be triggered")
+    ap.add_argument("--cwd", default=os.getcwd(), help="run the queries in this directory")
+    ap.add_argument("--model", default=None, help="model id (default: the CLI's own default)")
+    ap.add_argument("--claude", default="claude", help="claude binary to use (default: from PATH)")
+    ap.add_argument("--workers", type=int, default=5, help="parallel queries (default 5)")
+    ap.add_argument("--timeout", type=int, default=180, help="seconds per query (default 180)")
+    ap.add_argument("-o", "--out", default=None, help="also write the rows as JSON here")
+    a = ap.parse_args()
+
+    if not os.path.isdir(a.cwd):
+        sys.exit(f"error: --cwd {a.cwd} is not a directory")
+    try:
+        evals = json.load(open(a.evals))
+    except (OSError, ValueError) as e:
+        sys.exit(f"error: cannot read {a.evals}: {e}")
+    if not isinstance(evals, list) or not evals:
+        sys.exit(f"error: {a.evals} must be a non-empty JSON list")
+    for i, ev in enumerate(evals):
+        if "query" not in ev or "should_trigger" not in ev:
+            sys.exit(f"error: entry {i} needs both 'query' and 'should_trigger'")
+
+    claude, version = check_claude(a.claude)
+    print(f"{claude} ({version}) · {len(evals)} queries · cwd {a.cwd}\n", file=sys.stderr)
+
+    with cf.ThreadPoolExecutor(max_workers=a.workers) as ex:
+        rows = list(ex.map(
+            lambda ev: {**ev, "skill": first_skill(claude, ev["query"], a.model, a.cwd, a.timeout)},
+            evals))
+
+    ok = 0
+    for r in rows:
+        got = r["skill"] == a.skill
+        good = bool(r["should_trigger"]) == got
+        ok += good
+        print(f"{'OK  ' if good else 'FAIL'} want={'yes' if r['should_trigger'] else 'no '} "
+              f"got={str(r['skill'] or '(none)'):<18} {r['query'][:62]}")
+    print(f"\n{ok}/{len(rows)} correct")
+
+    if a.out:
+        json.dump(rows, open(a.out, "w"), indent=1)
+        print(f"rows written to {a.out}", file=sys.stderr)
+    # Non-zero when anything missed, so a check can branch on it.
+    return 0 if ok == len(rows) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

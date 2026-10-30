@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Example vitals probe.
+#
+# Print key=value lines. Exit 0 for a good reading, non-zero to mark it failed.
+# Keep it fast — this runs on every refresh and is killed if it overruns.
+
+# Wi-Fi retry rate: a high value means a congested band, and shows up as lag
+# long before anything reports an error.
+if command -v iw >/dev/null && iw dev wlan0 station dump >/dev/null 2>&1; then
+    r=$(iw dev wlan0 station dump 2>/dev/null | awk '/tx retries/{print $3}')
+    p=$(iw dev wlan0 station dump 2>/dev/null | awk '/tx packets/{print $3}')
+    [ -n "$r" ] && [ -n "$p" ] && [ "$p" -gt 0 ] && \
+        echo "wifi_retry_pct=$(( r * 100 / p ))"
+fi
+
+# Charger: what the USB-C contract actually negotiated, which is not the same
+# as "a charger is plugged in".
+for d in /sys/class/power_supply/ucsi*; do
+    [ -r "$d/online" ] || continue
+    echo "$(basename "$d")_online=$(cat "$d/online")"
+done

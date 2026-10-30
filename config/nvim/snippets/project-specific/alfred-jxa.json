@@ -1,0 +1,148 @@
+{
+  "AlfredRun": {
+    "body": [
+      "/** @type {AlfredRun} */",
+      "// biome-ignore lint/correctness/noUnusedVariables: Alfred run",
+      "function run(argv) {",
+      "\tconst ${1:query} = argv[0];",
+      "}"
+    ],
+    "prefix": [
+      "run (Alfred)",
+      "AlfredRun",
+      "argv (Alfred)"
+    ]
+  },
+  "Error item (Alfred)": {
+    "body": "if (!response) return JSON.stringify({ items: [{ title: \"Error: No results\", valid: false }] });",
+    "prefix": "Error item (Alfred)"
+  },
+  "Get Alfred Env": {
+    "body": "\\$.getenv(\"${1:envVar}\");",
+    "prefix": "get Alfred env var"
+  },
+  "Get Alfred Env (Safe)": {
+    "body": "\\$.NSProcessInfo.processInfo.environment.objectForKey(\"${1:envVar}\").js;",
+    "prefix": "get alfred env var (safe)"
+  },
+  "Modifiers (Script Filter)": {
+    "body": [
+      "mods: {",
+      "\tcmd: {",
+      "\t\targ: $1,",
+      "\t\tsubtitle: \"⌘: $2\",",
+      "\t},",
+      "}"
+    ],
+    "prefix": "Modifiers (Alfred)"
+  },
+  "Script Filter (Alfred): API Call": {
+    "body": [
+      "/** @param {string} url @return {string} */",
+      "function httpRequest(url) {",
+      "\tconst queryUrl = \\$.NSURL.URLWithString(url);",
+      "\tconst data = \\$.NSData.dataWithContentsOfURL(queryUrl);",
+      "\treturn \\$.NSString.alloc.initWithDataEncoding(data, \\$.NSUTF8StringEncoding).js;",
+      "}",
+      "",
+      "//──────────────────────────────────────────────────────────────────────────────",
+      "",
+      "/** @type {AlfredRun} */",
+      "// biome-ignore lint/correctness/noUnusedVariables: Alfred run",
+      "function run(argv) {",
+      "\tconst query = argv[0];",
+      "",
+      "\t// DOCS ",
+      "\tconst apiUrl = \"THE_URL\" + encodeURIComponent(query);",
+      "\tconst response = httpRequest(apiUrl);",
+      "\tif (!response) return JSON.stringify({ items: [{ title: \"Error: No results\", valid: false }] });",
+      "",
+      "\t/** @type {AlfredItem[]} */",
+      "\tconst ${1:items} = JSON.parse(response).map((/** @type {{name: string}} */ item) => {",
+      "\t\t$0",
+      "",
+      "\t\treturn {",
+      "\t\t\ttitle: item.name,",
+      "\t\t\tsubtitle: \"\",",
+      "\t\t\targ: item.name,",
+      "\t\t};",
+      "\t});",
+      "",
+      "\treturn JSON.stringify({ items: ${1:items} });",
+      "}"
+    ],
+    "prefix": "Script Filter (Alfred): API Call"
+  },
+  "Script Filter (Alfred): doShellScript": {
+    "body": [
+      "/** @type {AlfredRun} */",
+      "// biome-ignore lint/correctness/noUnusedVariables: Alfred run",
+      "function run() {",
+      "\tconst shellCmd = \"ls\"",
+      "",
+      "\t/** @type {AlfredItem[]} */",
+      "\tconst alfredItems = app",
+      "\t\t.doShellScript(shellCmd)",
+      "\t\t.split(\"\\r\")",
+      "\t\t.map((item) => {",
+      "\t\t\treturn {",
+      "\t\t\t\ttitle: item,",
+      "\t\t\t\tsubtitle: item,",
+      "\t\t\t\targ: item,",
+      "\t\t\t};",
+      "\t\t});",
+      "",
+      "\treturn JSON.stringify({ items: alfredItems });",
+      "}"
+    ],
+    "prefix": "Script Filter (Alfred): doShellScript"
+  },
+  "cache (Script Filter)": {
+    "body": "cache: { seconds: 600, loosereload: true },",
+    "prefix": "cache (Script Filter)"
+  },
+  "cache (ensure folder)": {
+    "body": [
+      "function ensureCacheFolderExists() {",
+      "\tconst finder = Application(\"Finder\");",
+      "\tconst cacheDir = \\$.getenv(\"alfred_workflow_cache\");",
+      "\tif (finder.exists(Path(cacheDir))) return;",
+      "\tconsole.log(\"Cache directory does not exist and is created.\");",
+      "\tconst cacheDirBasename = \\$.getenv(\"alfred_workflow_bundleid\");",
+      "\tconst cacheDirParent = cacheDir.slice(0, -cacheDirBasename.length);",
+      "\tfinder.make({",
+      "\t\tnew: \"folder\",",
+      "\t\tat: Path(cacheDirParent),",
+      "\t\twithProperties: { name: cacheDirBasename },",
+      "\t});",
+      "}"
+    ],
+    "prefix": "cache (ensure folder)"
+  },
+  "matcher (camelCase)": {
+    "body": [
+      "/** @param {string} str */",
+      "function camelCaseMatch(str) {",
+      "\tconst subwords = str.replace(/[-_./]/g, \" \");",
+      "\tconst fullword = str.replace(/[-_./]/g, \"\");",
+      "\tconst camelCaseSeparated = str.replace(/([A-Z])/g, \" \\$1\");",
+      "\treturn [subwords, camelCaseSeparated, fullword, str].join(\" \") + \" \";",
+      "}"
+    ],
+    "prefix": "matcher (camelCase)"
+  },
+  "matcher (simple)": {
+    "body": [
+      "/** @param {string} str */",
+      "function alfredMatcher(str) {",
+      "\tconst clean = str.replace(/[-_#/.:;,()[\\]]/g, \" \");",
+      "\treturn [clean, str].join(\" \") + \" \";",
+      "}"
+    ],
+    "prefix": "matcher (simple)"
+  },
+  "reload Alfred workflow": {
+    "body": "Application(\"com.runningwithcrayons.Alfred\").reloadWorkflow(\\$.getenv(\"alfred_workflow_bundleid\"))",
+    "prefix": "reload Alfred workflow"
+  }
+}

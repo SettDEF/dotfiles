@@ -1,0 +1,12 @@
+[Unit]
+Description=Knurl: on-screen keyboard follows text fields while a controller is in use
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/knurl ime
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

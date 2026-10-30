@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Apathy"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#031a16"
+cyan1 = "#0b342d"
+cyan2 = "#184e45"
+cyan3 = "#2b685e"
+cyan4 = "#5f9c92"
+cyan5 = "#81b5ac"
+cyan6 = "#a7cec8"
+grey2 = "#d2e7e4"
+cyan7 = "#3e9688"
+blue1 = "#3e7996"
+blue2 = "#3e4c96"
+purple1 = "#883e96"
+red1 = "#963e4c"
+yellow1 = "#96883e"
+green1 = "#4c963e"
+green2 = "#3e965b"
+
+[roles]
+background = "#031a16"
+foreground = "#d2e7e4"
+primary = "#4c963e"

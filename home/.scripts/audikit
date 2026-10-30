@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+import os
+import sys
+import struct
+import argparse
+import subprocess
+import shutil
+
+# Color Codes for Terminal Output
+class Colors:
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    CYAN = '\033[96m'
+    MAGENTA = '\033[95m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
+
+def print_status(status, color, message):
+    print(f"[{color}{status}{Colors.RESET}] {message}")
+
+class AudioAudit:
+    def __init__(self, fix_mode=False, backup_dir=None):
+        self.fix_mode = fix_mode
+        self.backup_dir = backup_dir
+        self.scanned = 0
+        self.corrupted = 0
+        self.fixed = 0
+
+    def check_wav_riff_header(self, filepath):
+        """Verifies RIFF/WAVE header compliance and returns error details."""
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(12)
+                if len(header) < 12:
+                    return "Truncated file (less than 12 bytes)"
+
+                riff, file_size_header, wave = struct.unpack('<4sI4s', header)
+
+                if riff != b'RIFF':
+                    return "Not a valid RIFF file (missing RIFF magic bytes)"
+                if wave != b'WAVE':
+                    return "Not a valid WAVE file (missing WAVE magic bytes)"
+
+                # Check if the physical file size matches the size declared in the header
+                physical_size = os.path.getsize(filepath)
+                expected_size = file_size_header + 8
+                
+                # Check for significant discrepancy (often indicating corruption or truncated download)
+                if abs(physical_size - expected_size) > 1024:
+                    return f"Size mismatch (Header: {expected_size} bytes, Actual: {physical_size} bytes)"
+
+            return None  # No header errors detected
+        except Exception as e:
+            return f"Header read failure: {e}"
+
+    def check_with_ffprobe(self, filepath):
+        """Runs ffprobe on the file to verify stream integrity and check for decodability."""
+        try:
+            # Check file decodability using ffmpeg null muxer
+            cmd = ["ffmpeg", "-v", "error", "-i", filepath, "-f", "null", "-", "2>&1"]
+            result = subprocess.run(" ".join(cmd), shell=True, capture_output=True, text=True)
+            
+            if result.returncode != 0 or result.stdout:
+                err_msg = result.stdout.strip().replace('\n', ' | ')
+                return f"Decoding error: {err_msg[:120]}"
+            
+            return None
+        except FileNotFoundError:
+            # Fallback if ffmpeg is not installed
+            return None
+        except Exception as e:
+            return f"Integrity check failed: {e}"
+
+    def fix_wav_file(self, filepath):
+        """Losslessly re-muxes the WAV file to rebuild a compliant RIFF header and strip corrupt metadata chunks."""
+        if not self.fix_mode:
+            return False
+
+        temp_path = filepath + ".tmp.wav"
+        try:
+            # Create a backup if requested
+            if self.backup_dir:
+                os.makedirs(self.backup_dir, exist_ok=True)
+                shutil.copy2(filepath, os.path.join(self.backup_dir, os.path.basename(filepath)))
+
+            # Use ffmpeg to losslessly copy audio stream (-c:a copy), strip metadata (-map_metadata -1), 
+            # and write a perfectly compliant standard RIFF header (-fflags +bitexact)
+            cmd = [
+                "ffmpeg", "-y", "-v", "quiet",
+                "-i", filepath,
+                "-map_metadata", "-1",
+                "-fflags", "+bitexact",
+                "-c:a", "copy",
+                temp_path
+            ]
+            
+            subprocess.run(cmd, check=True)
+            
+            # Swap the temp file into place
+            os.replace(temp_path, filepath)
+            self.fixed += 1
+            return True
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            print_status("FAILED FIX", Colors.RED, f"Could not fix {filepath}: {e}")
+            return False
+
+    def scan_file(self, filepath):
+        """Scans a single file for header issues or metadata warnings."""
+        if not filepath.lower().endswith('.wav'):
+            return
+
+        self.scanned += 1
+        
+        # 1. Inspect RIFF structure
+        header_err = self.check_wav_riff_header(filepath)
+        
+        # 2. Inspect audio stream integrity
+        stream_err = self.check_with_ffprobe(filepath)
+
+        if header_err or stream_err:
+            self.corrupted += 1
+            err_details = header_err or stream_err
+            
+            print_status("BAD FILE", Colors.RED, f"{filepath}")
+            print(f"    ↳ {Colors.YELLOW}Issue:{Colors.RESET} {err_details}")
+            
+            if self.fix_mode:
+                if self.fix_wav_file(filepath):
+                    print_status("FIXED", Colors.GREEN, f"Successfully rebuilt RIFF header and stripped bad metadata chunks.")
+        else:
+            # File is healthy
+            pass
+
+    def scan_directory(self, root_dir):
+        """Recursively scans a directory for audio files."""
+        print_status("AUDITING", Colors.CYAN, f"Scanning all .wav files in: {root_dir}")
+        print("=" * 80)
+        
+        for root, _, files in os.walk(root_dir):
+            for file in files:
+                filepath = os.path.join(root, file)
+                self.scan_file(filepath)
+
+        print("=" * 80)
+        print_status("COMPLETED", Colors.CYAN, "Scan finished.")
+        print(f"  • Scanned files:   {Colors.BOLD}{self.scanned}{Colors.RESET}")
+        print(f"  • Corrupted files: {Colors.RED}{Colors.BOLD}{self.corrupted}{Colors.RESET}")
+        if self.fix_mode:
+            print(f"  • Repaired files:  {Colors.GREEN}{Colors.BOLD}{self.fixed}{Colors.RESET}")
+        elif self.corrupted > 0:
+            print(f"  • Hint:            Run with {Colors.GREEN}--fix{Colors.RESET} to losslessly repair compliant issues and strip corrupt metadata.")
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="AudioKit: Audits and losslessly repairs WAV file headers and metadata chunks to prevent DAW (Bitwig/Ableton) import errors."
+    )
+    parser.add_argument("path", help="Path to the directory or WAV file to scan")
+    parser.add_argument("-f", "--fix", action="store_true", help="Rebuild headers and strip corrupt metadata chunks losslessly using ffmpeg")
+    parser.add_argument("-b", "--backup", help="Specify a directory to backup original files before repairing them")
+
+    args = parser.parse_args()
+
+    # Validate ffmpeg installation if fix is requested
+    if args.fix and not shutil.which("ffmpeg"):
+        print_status("ERROR", Colors.RED, "ffmpeg is required to repair audio files. Please install it first ('sudo pacman -S ffmpeg').")
+        sys.exit(1)
+
+    target_path = os.path.abspath(os.path.expanduser(args.path))
+    if not os.path.exists(target_path):
+        print_status("ERROR", Colors.RED, f"Target path does not exist: {target_path}")
+        sys.exit(1)
+
+    audit = AudioAudit(fix_mode=args.fix, backup_dir=args.backup)
+
+    if os.path.isdir(target_path):
+        audit.scan_directory(target_path)
+    else:
+        audit.scan_file(target_path)
+
+if __name__ == "__main__":
+    main()

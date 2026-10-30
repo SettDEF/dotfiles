@@ -1,0 +1,26 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "One Dark"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#282c34"
+grey2 = "#21252b"
+grey3 = "#181a1f"
+grey4 = "#3e4452"
+grey5 = "#5c6370"
+grey6 = "#abb2bf"
+grey7 = "#dcdfe4"
+red1 = "#e06c75"
+orange1 = "#d19a66"
+yellow1 = "#e5c07b"
+green1 = "#98c379"
+cyan1 = "#56b6c2"
+blue1 = "#61afef"
+purple1 = "#c678dd"
+red2 = "#be5046"
+
+[roles]
+background = "#282c34"
+foreground = "#dcdfe4"
+primary = "#c678dd"

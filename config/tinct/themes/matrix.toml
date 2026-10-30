@@ -1,0 +1,21 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Matrix"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#0d0208"
+green1 = "#003b00"
+green2 = "#008f11"
+green3 = "#00bb00"
+green4 = "#00ff41"
+green5 = "#00ff66"
+green6 = "#39ff14"
+green7 = "#76ff7a"
+green8 = "#a8ffaa"
+green9 = "#d0ffd0"
+
+[roles]
+background = "#0d0208"
+foreground = "#d0ffd0"
+primary = "#39ff14"

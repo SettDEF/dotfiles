@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Oxocarbon"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#161616"
+grey2 = "#262626"
+grey3 = "#393939"
+grey4 = "#525252"
+grey5 = "#dde1e6"
+grey6 = "#f2f4f8"
+grey7 = "#ffffff"
+cyan1 = "#3ddbd9"
+blue1 = "#33b1ff"
+red1 = "#ee5396"
+green1 = "#42be65"
+blue2 = "#82cfff"
+red2 = "#ff7eb6"
+cyan2 = "#08bdba"
+red3 = "#ff8389"
+purple1 = "#be95ff"
+
+[roles]
+background = "#161616"
+foreground = "#ffffff"
+primary = "#ee5396"

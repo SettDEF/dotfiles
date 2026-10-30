@@ -1,0 +1,37 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Challenger Deep"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#212121"
+grey2 = "#767676"
+grey3 = "#f3f3f3"
+grey4 = "#ffffff"
+grey5 = "#424242"
+grey6 = "#545454"
+grey7 = "#303030"
+grey8 = "#b2b2b2"
+grey9 = "#c6c6c6"
+purple1 = "#1e1c31"
+purple2 = "#100e23"
+purple3 = "#565575"
+red1 = "#ff8080"
+red2 = "#ff5458"
+green1 = "#95ffa4"
+green2 = "#62d196"
+yellow1 = "#ffe9aa"
+orange1 = "#ffb378"
+blue1 = "#91ddff"
+blue2 = "#65b2ff"
+purple4 = "#c991e1"
+purple5 = "#906cff"
+green3 = "#aaffe4"
+cyan1 = "#63f2f1"
+grey10 = "#cbe3e7"
+blue3 = "#a6b3cc"
+
+[roles]
+background = "#212121"
+foreground = "#ffffff"
+primary = "#ff5458"

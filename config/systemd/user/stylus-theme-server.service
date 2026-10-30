@@ -1,0 +1,15 @@
+[Unit]
+Description=Serve tinct Stylus themes on localhost for Stylus live-reload
+Documentation=https://github.com/openstyles/stylus/wiki
+After=graphical-session.target
+
+[Service]
+# Static file server bound to loopback only — exposes
+# ~/.local/share/stylus-themes/*.user.css at http://localhost:8787/ so the
+# Stylus extension can poll the URL and live-reload when tinct rewrites it.
+ExecStart=/usr/bin/python3 -m http.server 8787 --bind 127.0.0.1 --directory %h/.local/share/stylus-themes
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

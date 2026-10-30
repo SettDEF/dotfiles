@@ -1,0 +1,114 @@
+#!/bin/bash
+# Usage: nproj [-d directory] [-f] [-h] [project_name]
+# Script to create a new project from a template with flexible storage options.
+
+# Check if fzf is installed
+if ! command -v fzf &> /dev/null; then
+    echo "Error: fzf is not installed. Please install fzf to use this feature."
+    exit 1
+fi
+
+# Define the templates directory
+TEMPLATES_DIR="$HOME/coding/templates"
+
+# Check if the templates directory exists
+if [ ! -d "$TEMPLATES_DIR" ]; then
+    echo "Error: Templates directory not found at $TEMPLATES_DIR"
+    exit 1
+fi
+
+# Get the list of available templates (only directories)
+TEMPLATES=$(find "$TEMPLATES_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+
+# Check if there are any templates available
+if [ -z "$TEMPLATES" ]; then
+    echo "Error: No templates found in $TEMPLATES_DIR"
+    exit 1
+fi
+
+# Initialize variables
+CUSTOM_DIR=""
+FORCE_OVERWRITE=false
+PROJECT_NAME=""
+
+# Parse command-line options
+while getopts "d:fh" opt; do
+    case $opt in
+        d) CUSTOM_DIR="$OPTARG" ;;
+        f) FORCE_OVERWRITE=true ;;
+        h) echo "Usage: nproj [-d directory] [-f] [-h] [project_name]"
+           echo "Options:"
+           echo "  -d directory: Specify the directory to create the project in (default: current directory)"
+           echo "  -f          : Force overwrite if the target directory already exists"
+           echo "  -h          : Display this help message"
+           echo "Notes:"
+           echo "  If project_name is provided, the template is copied as a subdirectory."
+           echo "  If no project_name is provided, the template directory itself is copied into the target."
+           exit 0 ;;
+        \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+    esac
+done
+shift $((OPTIND -1))
+
+# Get the project name from the command line argument (optional)
+PROJECT_NAME="$1"
+
+# Use fzf to select a template
+SELECTED_TEMPLATE=$(echo "$TEMPLATES" | fzf --prompt="Select a template: ")
+
+# Check if the user canceled the selection
+if [ -z "$SELECTED_TEMPLATE" ]; then
+    echo "No template selected. Exiting."
+    exit 0
+fi
+
+# Set the target directory
+if [ -n "$CUSTOM_DIR" ]; then
+    # Check if the custom directory exists
+    if [ ! -d "$CUSTOM_DIR" ]; then
+        echo "Error: Specified directory $CUSTOM_DIR does not exist."
+        exit 1
+    fi
+    if [ -n "$PROJECT_NAME" ]; then
+        TARGET_DIR="$CUSTOM_DIR/$PROJECT_NAME/$SELECTED_TEMPLATE"
+    else
+        TARGET_DIR="$CUSTOM_DIR/$SELECTED_TEMPLATE"
+    fi
+else
+    if [ -n "$PROJECT_NAME" ]; then
+        TARGET_DIR="$PWD/$PROJECT_NAME/$SELECTED_TEMPLATE"
+    else
+        TARGET_DIR="$PWD/$SELECTED_TEMPLATE"
+    fi
+fi
+
+# Check if the target directory already exists and handle overwrite
+if [ -d "$TARGET_DIR" ]; then
+    if [ "$FORCE_OVERWRITE" = true ]; then
+        echo "Warning: $TARGET_DIR already exists. Overwriting as -f was specified."
+        rm -rf "$TARGET_DIR"
+    else
+        echo "Error: Directory $TARGET_DIR already exists. Use -f to overwrite."
+        exit 1
+    fi
+fi
+
+# Ensure the parent directory exists if PROJECT_NAME is provided
+if [ -n "$PROJECT_NAME" ]; then
+    mkdir -p "$(dirname "$TARGET_DIR")"
+fi
+
+# Copy the entire selected template directory to the target directory
+cp -r "$TEMPLATES_DIR/$SELECTED_TEMPLATE" "$TARGET_DIR"
+
+# Check if the copy was successful
+if [ $? -eq 0 ]; then
+    if [ -n "$PROJECT_NAME" ]; then
+        echo "New project '$PROJECT_NAME' created with '$SELECTED_TEMPLATE' template in $TARGET_DIR"
+    else
+        echo "Template '$SELECTED_TEMPLATE' copied into $TARGET_DIR"
+    fi
+else
+    echo "Error: Failed to copy template."
+    exit 1
+fi

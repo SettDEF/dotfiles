@@ -1,0 +1,70 @@
+#!/bin/sh
+# statshud-fps-setup — enable real per-game FPS for the stats overlay.
+#
+# WHY THIS IS NEEDED AT ALL
+# A game's frame rate exists only inside the game's process. The compositor
+# sees frames arriving at the screen, which on a 180Hz panel with tearing
+# enabled is a different number entirely — measured here, the shell's own
+# frame callbacks read a constant 180 while the game rendered ~61. So the
+# only way to know a game's FPS is a Vulkan layer loaded into it.
+#
+# WHAT THIS USES
+# VK_LAYER_MESA_overlay — Mesa's own layer, from the same project as the
+# graphics driver. Not MangoHud. Run with no_display it draws NOTHING; it
+# only writes the frame rate to a file the overlay tails.
+#
+# Usage:
+#   statshud-fps-setup check     is the layer installed?
+#   statshud-fps-setup env       print the launch option to paste into Steam
+#   statshud-fps-setup test      run a quick check that logging works
+
+LAYER_LIB=/usr/lib/libVkLayer_MESA_overlay.so
+OUT=/dev/shm/mesa-fps.csv
+# no_display: no overlay is drawn. fps: the only stat we need. output_file:
+# where the shell reads it from.
+CFG="no_display,fps,output_file=$OUT"
+
+have_layer() { [ -f "$LAYER_LIB" ] || ls /usr/share/vulkan/*layer.d/*overlay* >/dev/null 2>&1; }
+
+case "${1:-check}" in
+    check)
+        if have_layer; then
+            echo "layer:  installed"
+        else
+            echo "layer:  NOT installed"
+            echo
+            echo "  sudo pacman -S vulkan-mesa-layers lib32-vulkan-mesa-layers"
+            echo
+            echo "  (2.2 MB + 2.3 MB — Mesa's own layers, not MangoHud."
+            echo "   the 32-bit one is needed because Proton loads 32-bit parts)"
+            exit 1
+        fi
+        [ -f "$OUT" ] && echo "output: $OUT ($(wc -l < "$OUT") rows)" || echo "output: none yet"
+        ;;
+
+    env)
+        echo "Steam -> Borderlands 4 -> Properties -> Launch Options:"
+        echo
+        echo "  VK_LAYER_MESA_OVERLAY_CONFIG=$CFG VK_INSTANCE_LAYERS=VK_LAYER_MESA_overlay %command% -dx12"
+        echo
+        echo "Note -NoAsyncLoading is deliberately absent: it is what causes the"
+        echo "AsyncLoading2.cpp assert crashes and the cold-boot loading hang."
+        ;;
+
+    test)
+        have_layer || { echo "layer not installed — run: statshud-fps-setup check"; exit 1; }
+        command -v vkcube >/dev/null 2>&1 || { echo "install vulkan-tools to self-test, or just launch the game"; exit 1; }
+        rm -f "$OUT"
+        echo "running vkcube for 5s with the layer..."
+        VK_LAYER_MESA_OVERLAY_CONFIG="$CFG" VK_INSTANCE_LAYERS=VK_LAYER_MESA_overlay \
+            timeout 5 vkcube >/dev/null 2>&1
+        if [ -s "$OUT" ]; then
+            echo "OK — layer wrote $(wc -l < "$OUT") rows; last frame rate: $(tail -1 "$OUT" | cut -d, -f1)"
+            echo "the overlay will pick this up automatically"
+        else
+            echo "no output written — the layer did not load"
+        fi
+        ;;
+
+    *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

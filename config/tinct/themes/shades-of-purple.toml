@@ -1,0 +1,29 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Shades Of Purple"
+dark = true
+derived = true
+
+[colors]
+purple1 = "#2d2b55"
+grey1 = "#ffffff"
+grey2 = "#000000"
+red1 = "#ec3a37"
+green1 = "#3ad900"
+yellow1 = "#fad000"
+purple2 = "#7857fe"
+red2 = "#ff2c70"
+cyan1 = "#80fcff"
+grey3 = "#ffffff"
+grey4 = "#5c5c61"
+red3 = "#ec3a37"
+green2 = "#3ad900"
+yellow2 = "#fad000"
+purple3 = "#6943ff"
+purple4 = "#fb94ff"
+cyan2 = "#80fcff"
+grey5 = "#ffffff"
+
+[roles]
+background = "#2d2b55"
+foreground = "#ffffff"
+primary = "#fad000"

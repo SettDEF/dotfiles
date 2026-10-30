@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Opens the shell's settings window, or closes it when it is open (as the shell's own toggle).
+p="$HOME/.config/quickshell/ii/settings.qml"
+if qs list --all 2>/dev/null | grep -qF "Config path: $p"; then
+    exec qs kill -p "$p"
+fi
+exec qs -n -p "$p"

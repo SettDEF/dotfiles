@@ -1,0 +1,592 @@
+#!/usr/bin/env bash
+# ╔═══════════════════════════════════════════════════════════╗
+# ║            DRUMKIT BROWSER  ·  by Kiefr                  ║
+# ║     fzf-powered sample browser  ·  Arch Linux            ║
+# ╚═══════════════════════════════════════════════════════════╝
+# DEPS:    fzf · ffplay (ffmpeg) | mpv | aplay
+# OPTIONAL: ffprobe (info panel) · sox (stats)
+#
+# USAGE:   ./drumkit-browser.sh [DIR] [OPTIONS]
+# OPTIONS:
+#   --loop                     Loop playback
+#   --preview                  2s auto-preview
+#   --preview-duration=N       Preview N seconds
+#   --volume=N                 Volume 0-100 (default: 100)
+#   --dir=/path                Target directory
+#   --grid                     Start in grid view
+#   --tree                     Start in tree view (default)
+#   --no-menu                  Skip startup menu
+#   --player=ffplay|mpv|aplay  Force player
+#   --help                     Show help
+
+set -uo pipefail
+
+# ── Defaults ──────────────────────────────────────────────────
+LOOP=false
+PREVIEW_DURATION=0
+AUTO_PREVIEW=false
+VOLUME=100
+TARGET_DIR="$PWD"
+VIEW_MODE="tree"
+SHOW_MENU=true
+FORCE_PLAYER=""
+PLAYER=""
+SUPPORTED_EXTS="wav|flac|aiff|aif|mp3|ogg|opus"
+
+# ── Colors ─────────────────────────────────────────────────────
+GRN='\033[0;32m'; YLW='\033[0;33m'; RED='\033[0;31m'
+BLD='\033[1m'; DIM='\033[2m'; RST='\033[0m'
+
+usage() {
+    cat <<EOF
+${BLD}DRUMKIT BROWSER${RST} · by Kiefr
+
+Usage:  $(basename "$0") [DIR] [OPTIONS]
+  --loop                  Loop playback
+  --preview               2s auto-preview
+  --preview-duration=N    Preview N seconds
+  --volume=N              Volume 0-100
+  --dir=/path             Directory
+  --grid / --tree         View mode
+  --no-menu               Skip menu
+  --player=X              Force ffplay|mpv|aplay
+  --help                  This help
+
+Keys (in browser):
+  Space  play    s  stop    Tab  grid/tree
+  l  loop        +/-  volume    r  rescan
+  Enter  play&stay    q  quit
+EOF
+    exit 0
+}
+
+parse_args() {
+    for arg in "$@"; do
+        case "$arg" in
+            --help)                 usage ;;
+            --loop)                 LOOP=true ;;
+            --preview)              AUTO_PREVIEW=true; PREVIEW_DURATION=2 ;;
+            --preview-duration=*)   PREVIEW_DURATION="${arg#*=}"; AUTO_PREVIEW=true ;;
+            --volume=*)             VOLUME="${arg#*=}" ;;
+            --dir=*)                TARGET_DIR="${arg#*=}" ;;
+            --grid)                 VIEW_MODE="grid" ;;
+            --tree)                 VIEW_MODE="tree" ;;
+            --no-menu)              SHOW_MENU=false ;;
+            --player=*)             FORCE_PLAYER="${arg#*=}" ;;
+            -*)                     echo -e "${RED}Unknown: $arg${RST}" >&2; exit 1 ;;
+            *)                      [[ -d "$arg" ]] && TARGET_DIR="$arg" ;;
+        esac
+    done
+}
+
+detect_player() {
+    if [[ -n "$FORCE_PLAYER" ]]; then
+        command -v "$FORCE_PLAYER" &>/dev/null \
+            || { echo -e "${RED}Player not found: $FORCE_PLAYER${RST}" >&2; exit 1; }
+        PLAYER="$FORCE_PLAYER"
+    elif command -v ffplay &>/dev/null; then PLAYER="ffplay"
+    elif command -v mpv    &>/dev/null; then PLAYER="mpv"
+    elif command -v aplay  &>/dev/null; then PLAYER="aplay"
+    else
+        echo -e "${RED}No audio player found (ffplay/mpv/aplay)${RST}" >&2; exit 1
+    fi
+}
+
+stop_all() {
+    pkill -f "drumkit_kbr" &>/dev/null || true
+}
+
+play_file() {
+    local file="$1"
+    stop_all; sleep 0.03
+    case "$PLAYER" in
+        ffplay)
+            local df="" lf=""
+            [[ $PREVIEW_DURATION -gt 0 ]] && df="-t $PREVIEW_DURATION"
+            $LOOP && lf="-loop 0"
+            ffplay -nodisp -autoexit -volume "$VOLUME" $df $lf \
+                -window_title drumkit_kbr "$file" &>/dev/null &
+            ;;
+        mpv)
+            local df="" lf=""
+            [[ $PREVIEW_DURATION -gt 0 ]] && df="--length=$PREVIEW_DURATION"
+            $LOOP && lf="--loop"
+            mpv --no-video --volume="$VOLUME" $df $lf \
+                --title=drumkit_kbr "$file" &>/dev/null &
+            ;;
+        aplay)
+            aplay "$file" &>/dev/null &
+            ;;
+    esac
+}
+
+# ── Build index: one find|sort|xargs stat|awk pass — no per-file subshells ──
+build_index() {
+    local dir="$1" out="$2"
+    # Step 1: find + filter + sort → sorted path list
+    # Step 2: xargs stat in one batch → "path\tbytes" lines
+    # Step 3: single awk formats everything
+    find "$dir" -type f 2>/dev/null \
+        | grep -iE "\.(${SUPPORTED_EXTS})$" \
+        | sort \
+        | xargs -d '\n' stat --printf="%n\t%s\n" 2>/dev/null \
+        | awk -v base="$dir" '
+        {
+            tab = index($0, "\t")
+            path  = substr($0, 1, tab-1)
+            bytes = substr($0, tab+1) + 0
+
+            n = split(path, a, "/")
+            fname = a[n]
+
+            m = split(fname, b, ".")
+            ext = (m > 1) ? toupper(b[m]) : "?"
+
+            prefixlen = length(base) + 2
+            folder = substr(path, prefixlen, length(path) - prefixlen - length(fname))
+            gsub(/\/$/, "", folder)
+            if (folder == "") folder = "(root)"
+
+            if      (bytes >= 1073741824) size = sprintf("%.1fG", bytes/1073741824)
+            else if (bytes >= 1048576)    size = sprintf("%.1fM", bytes/1048576)
+            else if (bytes >= 1024)       size = sprintf("%.0fK", bytes/1024)
+            else                          size = bytes "B"
+
+            printf "%-44s  %-26s  %-5s  %-6s\t%s\n", fname, folder, ext, size, path
+        }
+    ' > "$out"
+}
+
+# ── Tree index: same but with indented folder lines prefixed __D__ ─
+build_tree_index() {
+    local dir="$1" out="$2"
+    local prev_folder=""
+    while IFS=$'\t' read -r display path; do
+        local fname folder
+        fname=$(echo "$display" | awk '{print $1}')
+        # extract folder from display (field 2, trimmed)
+        folder=$(echo "$display" | awk '{
+            # folder is col2 after filename (44 chars)
+            s = substr($0, 45)
+            gsub(/^[[:space:]]+/, "", s)
+            n = split(s, a, "  ")
+            print a[1]
+        }')
+        [[ -z "$folder" ]] && folder="(root)"
+
+        if [[ "$folder" != "$prev_folder" ]]; then
+            prev_folder="$folder"
+            local depth=0
+            [[ "$folder" != "(root)" ]] && depth=$(echo "$folder" | tr -cd '/' | wc -c)
+            local pad
+            pad=$(printf '%*s' $((depth * 2)) '')
+            printf "__D__%s  \xF0\x9F\x93\x81 %s\t__DIR__\n" "$pad" "${folder##*/}" >> "$out"
+        fi
+
+        local depth=0
+        [[ "$folder" != "(root)" ]] && depth=$(( $(echo "$folder" | tr -cd '/' | wc -c) + 1 ))
+        local pad
+        pad=$(printf '%*s' $((depth * 2)) '')
+        # Get just filename, ext, size from display
+        local fbase fext fsize
+        fbase=$(echo "$display" | awk '{printf "%-38s", $1}')
+        fext=$(echo  "$display" | awk '{print $2}' | head -c6)
+        fsize=$(echo "$display" | awk '{print $3}')
+        printf "%s  \xe2\x94\x9c\xe2\x94\x80 %s  %-5s  %-6s\t%s\n" \
+            "$pad" "$fbase" "$fext" "$fsize" "$path" >> "$out"
+    done < <(grep -v '^__' "$2_grid" 2>/dev/null || true)
+}
+
+# ── Preview script (written once to disk) ──────────────────────
+write_preview_script() {
+    local script="$1"
+    cat > "$script" << 'PVEOF'
+#!/usr/bin/env bash
+# Called as: preview.sh FILEPATH
+FILE="$1"
+[[ -z "$FILE" || "$FILE" == "__DIR__" || ! -f "$FILE" ]] && echo "  (select a sample)" && exit 0
+
+base="${FILE##*/}"
+ext="${FILE##*.}"
+folder="${FILE%/*}"
+fname="${base%.*}"
+
+# ── size ──────────────────────────────────────────────────
+sz=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
+if   (( sz >= 1073741824 )); then size=$(awk "BEGIN{printf \"%.2f GB\",$sz/1073741824}")
+elif (( sz >= 1048576    )); then size=$(awk "BEGIN{printf \"%.2f MB\",$sz/1048576}")
+elif (( sz >= 1024       )); then size=$(awk "BEGIN{printf \"%.1f KB\",$sz/1024}")
+else size="${sz} B"; fi
+
+W=40
+HR=$(printf '\033[2m'; printf '─%.0s' $(seq 1 $W); printf '\033[0m')
+
+printf "\n"
+printf "  \033[1;97m%s\033[0m\n" "$base"
+printf "  %s\n" "$HR"
+printf "  \033[2mFolder   \033[0m  %s\n"  "${folder##*/}"
+printf "  \033[2mExt      \033[0m  %s\n"  "$(echo "$ext" | tr '[:lower:]' '[:upper:]')"
+printf "  \033[2mSize     \033[0m  %s\n"  "$size"
+
+# ── ffprobe ────────────────────────────────────────────────
+if command -v ffprobe &>/dev/null; then
+    raw=$(ffprobe -v quiet -print_format json -show_streams -show_format "$FILE" 2>/dev/null)
+
+    codec=$(   printf '%s' "$raw" | grep -m1 '"codec_name"'    | grep -oP '(?<="codec_name": ")[^"]+')
+    codec_long=$(printf '%s' "$raw" | grep -m1 '"codec_long_name"' | grep -oP '(?<="codec_long_name": ")[^"]+')
+    sr=$(      printf '%s' "$raw" | grep -m1 '"sample_rate"'   | grep -oP '\d+')
+    ch=$(      printf '%s' "$raw" | grep -m1 '"channels"'      | grep -oP '\d+' | head -1)
+    chlayout=$(printf '%s' "$raw" | grep -m1 '"channel_layout"'| grep -oP '(?<="channel_layout": ")[^"]+')
+    depth=$(   printf '%s' "$raw" | grep -m1 '"bits_per_sample"'| grep -oP '\d+' | head -1)
+    dur=$(     printf '%s' "$raw" | grep -m1 '"duration"'      | grep -oP '[0-9]+\.[0-9]+' | head -1)
+    br=$(      printf '%s' "$raw" | grep -m1 '"bit_rate"'      | grep -oP '\d+' | head -1)
+    fmt=$(     printf '%s' "$raw" | grep -m1 '"format_name"'   | grep -oP '(?<="format_name": ")[^"]+')
+
+    # format duration as m:ss.ms
+    if [[ -n "$dur" ]]; then
+        dur_fmt=$(awk "BEGIN{
+            t=$dur; m=int(t/60); s=t-m*60
+            printf \"%d:%05.2f\", m, s
+        }")
+    fi
+
+    # bitrate in kbps
+    [[ -n "$br" && "$br" -gt 0 ]] && br_fmt="${br%???} kbps" || br_fmt=""
+
+    # channel label
+    case "$ch" in
+        1) ch_label="Mono" ;; 2) ch_label="Stereo" ;;
+        *) ch_label="${ch}ch" ;;
+    esac
+    [[ -n "$chlayout" && "$chlayout" != "unknown" ]] && ch_label="$ch_label ($chlayout)"
+
+    printf "  %s\n" "$HR"
+    [[ -n "$codec"     ]] && printf "  \033[2mCodec    \033[0m  %s\n"   "${codec_long:-$codec}"
+    [[ -n "$fmt"       ]] && printf "  \033[2mFormat   \033[0m  %s\n"   "$fmt"
+    [[ -n "$sr"        ]] && printf "  \033[2mSamplerate\033[0m %s Hz\n" "$sr"
+    [[ -n "$ch"        ]] && printf "  \033[2mChannels \033[0m  %s\n"   "$ch_label"
+    [[ -n "$depth" && "$depth" != "0" ]] && printf "  \033[2mBit depth\033[0m  %s-bit\n" "$depth"
+    [[ -n "$dur_fmt"   ]] && printf "  \033[2mDuration \033[0m  %s\n"   "$dur_fmt"
+    [[ -n "$br_fmt"    ]] && printf "  \033[2mBitrate  \033[0m  %s\n"   "$br_fmt"
+fi
+
+# ── sox stats + ASCII waveform ─────────────────────────────
+if command -v sox &>/dev/null; then
+    printf "  %s\n" "$HR"
+
+    # stats
+    stats=$(sox "$FILE" -n stat 2>&1)
+    rms_amp=$( printf '%s' "$stats" | grep 'RMS amplitude'    | awk '{print $NF}')
+    rms_db=$(  printf '%s' "$stats" | grep 'RMS lev dB'       | awk '{print $NF}')
+    peak_amp=$(printf '%s' "$stats" | grep 'Maximum amplitude' | awk '{print $NF}')
+    peak_db=$( printf '%s' "$stats" | grep 'Maximum lev dB'   | awk '{print $NF}')
+    dc=$(      printf '%s' "$stats" | grep 'DC offset'        | awk '{print $NF}')
+    clip=$(    printf '%s' "$stats" | grep 'Possibly clipping' | awk '{print $NF}')
+
+    [[ -n "$rms_db"   ]] && printf "  \033[2mRMS      \033[0m  %s dB  (amp %s)\n" "$rms_db"  "$rms_amp"
+    [[ -n "$peak_db"  ]] && printf "  \033[2mPeak     \033[0m  %s dB  (amp %s)\n" "$peak_db" "$peak_amp"
+    [[ -n "$dc"       ]] && printf "  \033[2mDC offset\033[0m  %s\n" "$dc"
+    if [[ "$clip" == "Yes" ]]; then
+        printf "  \033[31m⚠ Clipping detected\033[0m\n"
+    fi
+
+    # ASCII waveform — downsample to W-4 samples, draw with braille-style chars
+    printf "  %s\n" "$HR"
+    printf "  \033[2mWaveform:\033[0m\n  "
+    BAR_W=$(( W - 4 ))
+    # sox remix + rate to get mono samples, then awk draws bar chart
+    sox "$FILE" -t raw -r "$BAR_W" -e signed -b 8 -c 1 - 2>/dev/null \
+    | od -An -tu1 -v \
+    | tr ' ' '\n' \
+    | grep -v '^$' \
+    | head -"$BAR_W" \
+    | awk -v w="$BAR_W" '
+        BEGIN { n=0 }
+        { v[n++] = ($1 > 127) ? $1 - 256 : $1 }
+        END {
+            # find max abs
+            mx=1
+            for(i=0;i<n;i++) { a=(v[i]<0)?-v[i]:v[i]; if(a>mx) mx=a }
+            # draw 4-row bar (braille dots: ⣀⣤⣶⣿)
+            bars="▁▂▃▄▅▆▇█"
+            out=""
+            for(i=0;i<n;i++) {
+                norm = int(( (v[i]<0?-v[i]:v[i]) / mx ) * 7 + 0.5)
+                out = out substr(bars, norm+1, 1)
+            }
+            printf "\033[33m%s\033[0m\n", out
+        }
+    '
+    printf "\n"
+fi
+PVEOF
+    chmod +x "$script"
+}
+
+# ── Options menu ────────────────────────────────────────────────
+show_options_menu() {
+    local choice
+    choice=$(printf '%s\n' \
+        "  ▶   Browse & Play" \
+        "  🔁   Loop Mode              loops auf Enter" \
+        "  ⏱   Preview Mode           2s snippet" \
+        "  🌲   Tree View" \
+        "  ▦   Grid View" \
+        "  📂   Verzeichnis wählen" \
+        "  🔊   Lautstärke              aktuell: ${VOLUME}%" \
+        "  ℹ   Player Info            ${PLAYER}" \
+        "  ❌   Beenden" \
+        | fzf \
+            --prompt="  ⚙  Setup › " \
+            --header=$'  \033[1mDRUMKIT BROWSER\033[0m  ·  by Kiefr\n  \033[2m↑↓  ·  Enter  ·  q=quit\033[0m' \
+            --height=65% \
+            --border=rounded \
+            --color="fg:#cccccc,bg+:#1a1a2e,hl:#ffcc00,hl+:#ffee44,header:cyan,prompt:#00ff88,pointer:#ffcc00" \
+            --no-info \
+            --bind "q:abort" \
+    ) || exit 0
+
+    case "$choice" in
+        *"Browse & Play"*)  return 0 ;;
+        *"Loop Mode"*)      LOOP=true; return 0 ;;
+        *"Preview Mode"*)   AUTO_PREVIEW=true; PREVIEW_DURATION=2; return 0 ;;
+        *"Tree View"*)      VIEW_MODE="tree"; return 0 ;;
+        *"Grid View"*)      VIEW_MODE="grid"; return 0 ;;
+        *"Verzeichnis"*)
+            echo -en "\n${YLW}  Verzeichnis: ${RST}"
+            read -r new_dir
+            [[ -d "$new_dir" ]] \
+                && TARGET_DIR=$(realpath "$new_dir") \
+                && echo -e "${GRN}  ✓ ${TARGET_DIR}${RST}" \
+                || echo -e "${RED}  Nicht gefunden${RST}"
+            show_options_menu ;;
+        *"Lautstärke"*)
+            echo -en "\n${YLW}  Lautstärke (0-100): ${RST}"
+            read -r VOLUME
+            show_options_menu ;;
+        *"Player Info"*)
+            echo -e "\n${GRN}  Player: ${PLAYER}${RST}\n"; sleep 1
+            show_options_menu ;;
+        *"Beenden"*|"") exit 0 ;;
+    esac
+}
+
+# ── Main browser ────────────────────────────────────────────────
+run_browser() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'; stop_all" EXIT INT TERM
+
+    local grid_idx="${tmpdir}/grid.idx"
+    local tree_idx="${tmpdir}/tree.idx"
+    local preview_script="${tmpdir}/preview.sh"
+    local vol_file="${tmpdir}/vol"
+    local view_file="${tmpdir}/view"
+    local loop_file="${tmpdir}/loop"
+
+    echo "$VOLUME"    > "$vol_file"
+    echo "$VIEW_MODE" > "$view_file"
+    $LOOP && echo "true" > "$loop_file" || echo "false" > "$loop_file"
+
+    write_preview_script "$preview_script"
+
+    # ── Build index ONCE ─────────────────────────────────
+    echo -e "${DIM}  Scanne ${TARGET_DIR} ...${RST}"
+
+    build_index "$TARGET_DIR" "$grid_idx"
+
+    local count
+    count=$(wc -l < "$grid_idx" | tr -d ' ')
+    [[ "$count" -eq 0 ]] && {
+        echo -e "${RED}  Keine Samples in: ${TARGET_DIR}${RST}"; exit 1
+    }
+    echo -e "${GRN}  ${count} Samples · ${PLAYER}${RST}\n"
+
+    # Build tree index from grid — pure awk, zero subshells
+    awk -v OFS='\t' '
+    BEGIN { prev = "" }
+    {
+        tab = index($0, "\t")
+        display = substr($0, 1, tab-1)
+        path    = substr($0, tab+1)
+
+        # folder: chars 45+ trimmed, first double-space field
+        rest = substr(display, 45)
+        gsub(/^[[:space:]]+/, "", rest)
+        n = split(rest, a, "  ")
+        folder = a[1]
+        gsub(/[[:space:]]+$/, "", folder)
+        if (folder == "") folder = "(root)"
+
+        if (folder != prev) {
+            prev = folder
+            depth = 0
+            tmp = folder
+            if (folder != "(root)") {
+                depth = gsub(/\//, "/", tmp)
+            }
+            pad = sprintf("%*s", depth*2, "")
+            dname = folder
+            sub(/.*\//, "", dname)
+            if (folder == "(root)") dname = "/"
+            printf "__D__%s  \360\237\223\201 %s\t__DIR__\n", pad, dname
+        }
+
+        # file depth
+        depth = 0
+        tmp = folder
+        if (folder != "(root)") depth = gsub(/\//, "/", tmp) + 1
+        pad = sprintf("%*s", depth*2, "")
+
+        fname = $1
+        ext   = a[2]; gsub(/[[:space:]]/, "", ext)
+        size  = a[3]; gsub(/[[:space:]]/, "", size)
+
+        printf "%s  \342\224\234\342\224\200 %-38s  %-5s  %-6s\t%s\n", \
+            pad, fname, ext, size, path
+    }
+    ' "$grid_idx" > "$tree_idx"
+
+    # ── Helper: emit current display list ────────────────
+    # used for initial load AND --bind reload
+    local active_idx_ref   # will be set per-loop
+
+    # ── fzf loop: stay in browser until q ────────────────
+    while true; do
+        local cur_view cur_loop cur_vol
+        cur_view=$(cat "$view_file")
+        cur_loop=$(cat "$loop_file")
+        cur_vol=$(cat "$vol_file")
+        VOLUME="$cur_vol"
+        VIEW_MODE="$cur_view"
+        [[ "$cur_loop" == "true" ]] && LOOP=true || LOOP=false
+
+        local active_idx
+        [[ "$cur_view" == "grid" ]] && active_idx="$grid_idx" || active_idx="$tree_idx"
+
+        # ── Status + keys header ─────────────────────────
+        local loop_s prev_s col_hdr=""
+        [[ "$cur_loop" == "true" ]] \
+            && loop_s=$'\033[33mLOOP ON\033[0m\033[2m' \
+            || loop_s="loop off"
+        $AUTO_PREVIEW && prev_s=" · PREV ${PREVIEW_DURATION}s" || prev_s=""
+        local view_label
+        [[ "$cur_view" == "grid" ]] && view_label="GRID" || view_label="TREE"
+
+        [[ "$cur_view" == "grid" ]] && \
+            col_hdr=$(printf "\033[2m%-44s  %-26s  %-5s  %-6s\033[0m\n" \
+                "FILENAME" "FOLDER" "EXT" "SIZE")
+
+        local status
+        status=$(printf "  \033[2m%s samples  ·  %s  ·  %s  ·  \033[33mVOL:%s%%\033[0m\033[2m  ·  %s%s\033[0m" \
+            "$count" "$PLAYER" "$view_label" "$cur_vol" "$loop_s" "$prev_s")
+        local keys
+        keys=$(printf "  \033[2mSpc\033[0m\033[2m=play  s=stop  Tab=view  l=loop  C-u/C-d=vol  r=rescan  q=quit\033[0m")
+        local divider
+        divider=$(printf "\033[2m%s\033[0m" "$(printf '─%.0s' {1..68})")
+
+        local full_header="${col_hdr}${divider}\n${status}\n${keys}\n${divider}"
+
+        # ── Write play script ────────────────────────────
+        local play_script="${tmpdir}/play.sh"
+        cat > "$play_script" << PLAYEOF
+#!/usr/bin/env bash
+FILE="\$1"
+[[ -z "\$FILE" || "\$FILE" == "__DIR__" || ! -f "\$FILE" ]] && exit 0
+VOL=\$(cat "${vol_file}" 2>/dev/null || echo 100)
+LP=\$(cat "${loop_file}" 2>/dev/null || echo false)
+pkill -f drumkit_kbr &>/dev/null
+sleep 0.05
+case "${PLAYER}" in
+  ffplay)
+    LF=""; [[ "\$LP" == true ]] && LF="-loop 0"
+    DF=""; [[ ${PREVIEW_DURATION} -gt 0 ]] && DF="-t ${PREVIEW_DURATION}"
+    nohup ffplay -nodisp -autoexit -volume "\$VOL" \$DF \$LF -window_title drumkit_kbr "\$FILE" </dev/null &>/dev/null &
+    ;;
+  mpv)
+    LF=""; [[ "\$LP" == true ]] && LF="--loop"
+    DF=""; [[ ${PREVIEW_DURATION} -gt 0 ]] && DF="--length=${PREVIEW_DURATION}"
+    nohup mpv --no-video --volume="\$VOL" \$DF \$LF --title=drumkit_kbr "\$FILE" </dev/null &>/dev/null &
+    ;;
+  aplay)
+    nohup aplay "\$FILE" </dev/null &>/dev/null &
+    ;;
+esac
+disown
+PLAYEOF
+        chmod +x "$play_script"
+
+        # ── State toggle commands ────────────────────────
+        # written as scripts too — avoids quoting hell in fzf bind strings
+        local vol_up_script="${tmpdir}/vol_up.sh"
+        local vol_dn_script="${tmpdir}/vol_dn.sh"
+        local loop_script="${tmpdir}/loop.sh"
+        local view_script="${tmpdir}/view.sh"
+
+        printf '#!/usr/bin/env bash
+v=$(cat "%s"); v=$(( v+5 > 100 ? 100 : v+5 )); echo $v > "%s"
+'             "$vol_file" "$vol_file" > "$vol_up_script"
+        printf '#!/usr/bin/env bash
+v=$(cat "%s"); v=$(( v-5 < 0 ? 0 : v-5 )); echo $v > "%s"
+'             "$vol_file" "$vol_file" > "$vol_dn_script"
+        printf '#!/usr/bin/env bash
+lp=$(cat "%s"); [[ "$lp" == true ]] && echo false > "%s" || echo true > "%s"
+'             "$loop_file" "$loop_file" "$loop_file" > "$loop_script"
+        printf '#!/usr/bin/env bash
+cv=$(cat "%s"); [[ "$cv" == grid ]] && echo tree > "%s" || echo grid > "%s"
+'             "$view_file" "$view_file" "$view_file" > "$view_script"
+        chmod +x "$vol_up_script" "$vol_dn_script" "$loop_script" "$view_script"
+
+        # ── Run fzf ───────────────────────────────────────
+        local exit_code=0
+        cat "$active_idx" \
+        | fzf \
+            --delimiter='\t' \
+            --with-nth=1 \
+            --prompt="  ♪  › " \
+            --header="$(printf '%b' "$full_header")" \
+            --height=96% \
+            --border=rounded \
+            --color="fg:#cccccc,bg+:#12121e,hl:#ffcc00,hl+:#ffee44,header:238,prompt:#00ff88,pointer:#ffcc00" \
+            --reverse \
+            --no-sort \
+            --info=inline \
+            --preview "${preview_script} {2}" \
+            --preview-window="right:38:wrap" \
+            --bind "space:execute-silent(${play_script} {2})" \
+            --bind "enter:execute-silent(${play_script} {2})" \
+            --bind "s:execute-silent(pkill -f drumkit_kbr &>/dev/null; true)" \
+            --bind "tab:execute-silent(${view_script})+abort" \
+            --bind "l:execute-silent(${loop_script})+abort" \
+            --bind "ctrl-u:execute-silent(${vol_up_script})+abort" \
+            --bind "ctrl-d:execute-silent(${vol_dn_script})+abort" \
+            --bind "r:reload(cat '${active_idx}')" \
+            --bind "q:execute-silent(touch '${tmpdir}/quit')+abort" \
+            --bind "esc:execute-silent(touch '${tmpdir}/quit')+abort" \
+        || exit_code=$?
+
+        # tab/l/vol fire +abort → exit_code=130, loop continues for header refresh
+        # q/esc also abort → distinguish by checking if state files changed
+        # simplest: always continue unless it was a clean 0-exit (shouldn't happen)
+        [[ $exit_code -eq 0 ]] && { stop_all; break; }
+        # check if it was q/esc: those don't write state files, so we use a quit flag
+        [[ -f "${tmpdir}/quit" ]] && { stop_all; break; }
+        continue
+    done
+
+    rm -rf "$tmpdir"
+}
+
+# ── Entry point ─────────────────────────────────────────────────
+main() {
+    parse_args "$@"
+    [[ ! -d "$TARGET_DIR" ]] && {
+        echo -e "${RED}  Dir not found: ${TARGET_DIR}${RST}" >&2; exit 1
+    }
+    TARGET_DIR=$(realpath "$TARGET_DIR")
+    detect_player
+    $SHOW_MENU && show_options_menu
+    run_browser
+}
+
+main "$@"

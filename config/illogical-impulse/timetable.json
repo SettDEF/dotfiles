@@ -1,0 +1,14 @@
+{
+  "webUrl": "https://calendar.google.com",
+  "monday": [
+    { "subject": "Eco SL/HL", "start": "08:30", "end": "10:00", "room": "KD107" },
+    { "subject": "His HL",    "start": "10:30", "end": "12:00", "room": "KG102" },
+    { "subject": "Phy SL/HL", "start": "12:30", "end": "14:00", "room": "KC112" }
+  ],
+  "tuesday": [],
+  "wednesday": [],
+  "thursday": [],
+  "friday": [],
+  "saturday": [],
+  "sunday": []
+}

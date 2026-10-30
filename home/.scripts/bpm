@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# add-bpm-recursive.sh
+# Detects BPM with bpm-tag and writes to tags for all audio files recursively
+#
+# Usage:   add-bpm-recursive.sh  /path/to/folder
+#          add-bpm-recursive.sh  .
+
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: $0  /path/to/folder_or_file"
+    echo "       $0  ."
+    exit 1
+fi
+
+TARGET="$1"
+
+if [[ ! -e "$TARGET" ]]; then
+    echo "Path not found: $TARGET"
+    exit 1
+fi
+
+if ! command -v bpm-tag >/dev/null; then
+    echo "bpm-tag not found → install with: paru -S bpm-tools"
+    exit 1
+fi
+
+echo "Will process all .mp3 / .flac / .wav / .ogg / .aif* files"
+echo "in → $TARGET (recursive if directory)"
+echo "using bpm-tag to detect & write BPM tags"
+echo ""
+echo -n "Continue? (y/N) "
+read -r ans
+[[ "$ans" != "y" && "$ans" != "Y" ]] && exit 0
+
+# Find command – handles spaces/special chars
+find "$TARGET" -type f \
+    \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.aif" -o -iname "*.aiff" -o -iname "*.ogg" -o -iname "*.opus" \) \
+    -print0 | while IFS= read -r -d '' file; do
+
+    echo "→ $file"
+    bpm-tag -f -n "$file" && echo "   Success (BPM written)" || echo "   Failed (no beat detected or tag write error)"
+done
+
+echo ""
+echo "Finished!"
+echo "Now rescan your library in Mixxx (Library → Rescan Library) or reload individual tracks."
+echo "Tip: Enable Preferences → Library → Synchronize metadata from/to file tags for best results."

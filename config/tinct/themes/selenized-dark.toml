@@ -1,0 +1,33 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Selenized Dark"
+dark = true
+derived = true
+
+[colors]
+cyan1 = "#103c48"
+cyan2 = "#184956"
+cyan3 = "#2d5b69"
+grey1 = "#72898f"
+grey2 = "#adbcbc"
+grey3 = "#cad8d9"
+red1 = "#fa5750"
+green1 = "#75b938"
+yellow1 = "#dbb32d"
+blue1 = "#4695f7"
+purple1 = "#f275be"
+cyan4 = "#41c7b9"
+orange1 = "#ed8649"
+purple2 = "#af88eb"
+red2 = "#ff665c"
+green2 = "#84c747"
+yellow2 = "#ebc13d"
+blue2 = "#58a3ff"
+purple3 = "#ff84cd"
+cyan5 = "#53d6c7"
+orange2 = "#fd9456"
+purple4 = "#bd96fa"
+
+[roles]
+background = "#103c48"
+foreground = "#cad8d9"
+primary = "#75b938"

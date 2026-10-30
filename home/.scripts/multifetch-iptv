@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# multifetch-iptv - find public IPTV playlists, check which channels play, add one to reel.
+#
+#   multifetch-iptv "germany"          search, check, pick in fzf, add to reel
+#   multifetch-iptv --print "news"     the same as a table, nothing added
+#
+# The work is reel-iptv's (reel/iptv): `discover` searches GitHub for public M3U
+# lists and checks 10 channels of each; lists carrying pay-TV channels (Sky, DAZN,
+# beIN, …) are left out, since those are pirated. The GitHub token of `gh` raises
+# the search limit (it goes to api.github.com only).
+#
+# Writes only reel's settings (~/.config/reel/settings.json, tvPlaylists) on Enter.
+
+set -uo pipefail
+
+die() { echo "multifetch-iptv: $*" >&2; exit 1; }
+TOOL="${REEL_IPTV:-$HOME/.local/bin/reel-iptv}"
+SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/reel/settings.json"
+[[ -x "$TOOL" ]] || die "reel-iptv is not installed (run reel's install.sh)"
+command -v jq >/dev/null || die "jq is required"
+
+PRINT=0 WORDS=()
+for a in "$@"; do
+    case "$a" in
+        -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+        --print) PRINT=1 ;;
+        *) [[ -n "${a// }" ]] && WORDS+=("$a") ;;   # multifetch hands --iptv over as an empty word
+    esac
+done
+TOPIC="${WORDS[*]:-}"
+[[ -n "$TOPIC" ]] || read -r -p "Topic (country, language, genre): " TOPIC
+[[ -n "$TOPIC" ]] || exit 1
+
+GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}"
+export GITHUB_TOKEN
+
+echo "Searching public playlists for \"$TOPIC\"; results appear as each list is checked…" >&2
+# one row per list the moment reel-iptv has checked it: plays, channels, from, url
+rows() {
+    "$TOOL" crawl "$TOPIC" 400 --stream 2>/dev/null \
+        | jq --unbuffered -r 'select(.url) | "\(.working)/\(.tested)\t\(.matches)\t\(.channels)\t\(.from)\t\(.url)"'
+}
+
+if (( PRINT )) || ! command -v fzf >/dev/null; then
+    printf '%-7s %-6s %-9s %-26s %s\n' PLAYS MATCH CHANNELS FROM URL
+    n=0
+    while IFS=$'\t' read -r plays m ch from url; do
+        printf '%-7s %-6s %-9s %-26.26s %s\n' "$plays" "$m" "$ch" "$from" "$url"; n=$((n + 1))
+    done < <(rows)
+    (( n > 0 )) || { echo "multifetch-iptv: nothing usable found" >&2; exit 1; }
+    exit 0
+fi
+
+pick=$(rows | fzf --delimiter=$'\t' --with-nth=1,2,3,4 --no-sort \
+    --header="live · plays / match (channels with \"$TOPIC\") / channels / from · Enter adds to reel" \
+    --preview="curl -s --max-time 8 {5} | grep -m60 '^#EXTINF' | sed 's/.*,//' | grep -i --color=always -e '$TOPIC' -e ''" --preview-window=right,40%) || exit 0
+url=$(cut -f5 <<<"$pick")
+from=$(cut -f4 <<<"$pick")
+name="${from#*/}"
+
+mkdir -p "$(dirname "$SETTINGS")"
+[[ -s "$SETTINGS" ]] || echo '{}' > "$SETTINGS"
+if jq -e --arg u "$url" '(.tvPlaylists // []) | any(.url == $u)' "$SETTINGS" >/dev/null; then
+    echo "Already in reel: $name"
+    exit 0
+fi
+tmp=$(mktemp "$SETTINGS.XXXX")
+jq --arg n "$name" --arg u "$url" '.tvEnabled = true | .tvPlaylists = ((.tvPlaylists // []) + [{"name": $n, "url": $u, "type": "m3u", "enabled": true}])' "$SETTINGS" > "$tmp" \
+    && mv "$tmp" "$SETTINGS" || { rm -f "$tmp"; die "could not write $SETTINGS"; }
+echo "Added to reel: $name  ($url)"
+echo "reel picks it up on its next refresh (↻ on the Live TV page)."

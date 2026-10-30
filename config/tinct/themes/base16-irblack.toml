@@ -1,0 +1,27 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Base16 Irblack"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#000000"
+grey2 = "#242422"
+grey3 = "#484844"
+grey4 = "#6c6c66"
+grey5 = "#918f88"
+grey6 = "#b5b3aa"
+grey7 = "#d9d7cc"
+grey8 = "#fdfbee"
+red1 = "#ff6c60"
+yellow1 = "#e9c062"
+yellow2 = "#ffffb6"
+green1 = "#a8ff60"
+purple1 = "#c6c5fe"
+blue1 = "#96cbfe"
+purple2 = "#ff73fd"
+yellow3 = "#b18a3d"
+
+[roles]
+background = "#000000"
+foreground = "#fdfbee"
+primary = "#ff73fd"

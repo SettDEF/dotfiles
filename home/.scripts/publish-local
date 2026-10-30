@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+#
+# Build one of your own projects and publish it into the local pacman repo, so
+# `pacman -Syu` upgrades it like anything else on the system.
+#
+#   publish-local quarry           # build and publish
+#   publish-local quarry cairn     # several
+#   publish-local --all            # every project with a PKGBUILD
+#   publish-local --setup          # print the pacman.conf snippet and stop
+#
+# WHY A REPO RATHER THAN `pacman -U`
+#
+# `pacman -U some.pkg.tar.zst` installs a file and forgets where it came from.
+# A repo gives three things that matters for software you are changing daily:
+# `-Syu` picks up your own apps in the same pass as everything else; pacman
+# resolves dependencies BETWEEN your packages instead of failing on them; and
+# the old versions stay in the repo directory, so going back to yesterday's
+# build is one command rather than a rebuild.
+#
+# The repo lives on /mnt/storage deliberately — /home is the partition that
+# keeps filling up, and a package repo is exactly the kind of thing that grows
+# quietly until it is the problem.
+#
+set -euo pipefail
+
+REPO_DIR=${LOCAL_REPO_DIR:-/mnt/storage/repo}
+REPO_NAME=${LOCAL_REPO_NAME:-wuchains}
+PROJECTS=${PROJECTS_DIR:-/mnt/storage/dev/projects}
+
+snippet() {
+    cat <<CONF
+Add this to /etc/pacman.conf, ABOVE the [core] line so your own builds win
+when a name collides:
+
+[$REPO_NAME]
+SigLevel = Optional TrustAll
+Server = file://$REPO_DIR
+
+Then: sudo pacman -Sy && sudo pacman -S <name>
+CONF
+}
+
+if [[ ${1:-} == --setup ]]; then
+    snippet
+    exit 0
+fi
+
+targets=()
+if [[ ${1:-} == --all ]]; then
+    for dir in "$PROJECTS"/*/; do
+        [[ -f "$dir/PKGBUILD" ]] && targets+=("$(basename "$dir")")
+    done
+else
+    targets=("$@")
+fi
+
+if [[ ${#targets[@]} -eq 0 ]]; then
+    echo "usage: $(basename "$0") <project>... | --all | --setup" >&2
+    exit 2
+fi
+
+mkdir -p "$REPO_DIR"
+
+for name in "${targets[@]}"; do
+    dir="$PROJECTS/$name"
+    if [[ ! -f "$dir/PKGBUILD" ]]; then
+        echo "  $name: no PKGBUILD, skipped" >&2
+        continue
+    fi
+
+    echo "── $name"
+    cd "$dir"
+    # --noconfirm so a run over several projects does not stop for each one;
+    # -f because the version may not have moved if only comments changed.
+    makepkg -f --noconfirm
+
+    #
+    # THE PACKAGE, NOT THE DEBUG PACKAGE.
+    #
+    # makepkg emits `name-version.pkg.tar.zst` and `name-debug-version...`
+    # beside it, and `ls -t` picked whichever finished compressing last — which
+    # published the debug symbols and left the program out of the repo. Matched
+    # on the exact name instead of on time.
+    #
+    pkg=$(ls -t "$dir/$name"-[0-9]*.pkg.tar.zst 2>/dev/null | head -1)
+    if [[ -z $pkg ]]; then
+        echo "  $name: makepkg produced nothing" >&2
+        continue
+    fi
+
+    cp -f "$pkg" "$REPO_DIR/"
+    # repo-add replaces the entry for this package name, keeping the older
+    # FILES in place — which is what makes rolling back possible.
+    repo-add --quiet "$REPO_DIR/$REPO_NAME.db.tar.zst" "$REPO_DIR/$(basename "$pkg")"
+    echo "  published $(basename "$pkg")"
+done
+
+echo
+echo "Repo: $REPO_DIR ($(ls "$REPO_DIR"/*.pkg.tar.zst 2>/dev/null | wc -l) packages, $(du -sh "$REPO_DIR" 2>/dev/null | cut -f1))"
+if ! grep -q "^\[$REPO_NAME\]" /etc/pacman.conf 2>/dev/null; then
+    echo
+    echo "Not in pacman.conf yet:"
+    echo
+    snippet
+fi

@@ -1,0 +1,26 @@
+# made from a palette (tinct theme from-colors): the roles chosen, the rest filled
+name = "Iceberg"
+dark = true
+derived = true
+
+[colors]
+grey1 = "#161821"
+grey2 = "#1e2132"
+blue1 = "#2a3158"
+blue2 = "#444b71"
+blue3 = "#6b7089"
+grey3 = "#9ea0a9"
+grey4 = "#c6c8d1"
+grey5 = "#d2d4de"
+red1 = "#e27878"
+orange1 = "#e2a478"
+orange2 = "#e9b189"
+yellow1 = "#b4be82"
+cyan1 = "#89b8c2"
+blue4 = "#84a0c6"
+purple1 = "#a093c7"
+
+[roles]
+background = "#161821"
+foreground = "#d2d4de"
+primary = "#e27878"

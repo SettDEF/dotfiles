@@ -1,0 +1,650 @@
+#!/usr/bin/env bash
+# backup — full system-config snapshot to /mnt/storage/system-backups/<ts>/
+#
+# What it captures
+#   etc/      — curated /etc files (pacman, fstab, systemd units, NM wifi,
+#               sddm, mkinitcpio, sudoers, asusd, X11, udev rules, …)
+#   home/     — dotfiles in $HOME (zsh, bash, git, tmux, ssh config, …)
+#   config/   — only the ~/.config dirs that actually matter for your daily
+#               driver (quickshell, hypr, tinct, neovim, terminals, GTK, …)
+#   scripts/  — full ~/.scripts (your custom scripts)
+#   audio/    — ~/.vst, ~/.vst3, ~/.clap, ~/.lv2, ~/.ladspa,
+#               ~/.BitwigStudio, ~/Bitwig Studio, ~/.wine
+#               (skip with --no-audio)
+#   apps/     — ~/Applications (AppImages) + ~/.local/share (Telegram chats,
+#               nvim, claude sessions, fonts, icons, KDE state, custom .desktop
+#               entries). Excludes Steam game installs / umu / uv / baloo
+#               (reinstallable). Skip with --no-apps.
+#   comfy/    — ComfyUI on /mnt/storage (outside $HOME): launch script (ROCm/GPU
+#               config) + hand-written custom nodes + saved workflow JSONs.
+#               Models + venv excluded (re-downloadable). Skip with --no-comfy.
+#   packages/ — pacman explicit, AUR/foreign, flatpak, enabled systemd units
+#   system/   — uname, lsblk, df, mount, hyprctl version, kernel cmdline
+#   RESTORE.md — paste-ready commands to restore
+#
+# Storage strategy
+#   New snapshot dir: /mnt/storage/system-backups/<YYYYMMDD-HHMMSS>/
+#   rsync --link-dest=../latest → unchanged files are hardlinked, so each new
+#   snapshot only costs the size of the diff. Old snapshots stay browsable
+#   and self-contained.
+#
+# Usage
+#   backup                 — curated snapshot (default)
+#   backup --full          — EVERYTHING: all of ~/.config (no curation),
+#                            no per-app excludes
+#   backup --dry-run       — show what would copy, write nothing
+#   backup --etc-only      — only /etc
+#   backup --home-only     — only $HOME bits
+#   backup --no-audio      — skip the ~23G audio section (VSTs, Bitwig, .wine)
+#   backup --no-apps       — skip the ~6G apps section (AppImages, .local/share)
+#   backup --no-comfy      — skip the ComfyUI section
+#   backup --force         — proceed even if Firefox is running (torn SQLite risk)
+#   backup --to <path>     — write snapshot under <path> instead of the default
+#                            (also honours $BACKUP_ROOT env var)
+#   backup --rotate N      — after backup, keep newest N snapshots only
+#   backup list            — list existing snapshots with sizes
+#   backup diff [a] [b]    — diff two snapshots (or latest vs previous)
+
+set -uo pipefail
+
+# ── config ────────────────────────────────────────────────────────────────
+# Destination resolution order: --to <path>  >  $BACKUP_ROOT env  >  default.
+DEFAULT_DEST_ROOT="/mnt/storage/system-backups"
+DEST_ROOT="${BACKUP_ROOT:-$DEFAULT_DEST_ROOT}"
+MIN_FREE_GB=2
+KEEP_DEFAULT=10                 # rotate default
+
+# Which /etc paths to copy (files OR directories). Each line is rsync-style
+# relative to /etc/. Don't include the leading slash.
+ETC_PATHS=(
+    pacman.conf  pacman.d
+    makepkg.conf
+    fstab  crypttab  hosts  hostname  locale.conf  vconsole.conf  environment
+    mkinitcpio.conf  mkinitcpio.d
+    sddm.conf  sddm.conf.d
+    systemd/system  systemd/user  systemd/network  systemd/resolved.conf.d
+    systemd/logind.conf.d  systemd/sleep.conf.d
+    NetworkManager/system-connections  NetworkManager/conf.d
+    NetworkManager/NetworkManager.conf
+    bluetooth
+    sudoers.d
+    nftables.conf  iptables  ufw
+    default
+    modprobe.d  udev/rules.d
+    X11/xorg.conf.d
+    asusd  asus-stylus
+    dnsmasq.conf
+    bash.bashrc  zsh/zshrc  zsh/zshenv  fish/config.fish
+    pipewire  wireplumber
+    pacman.d/hooks
+    paru.conf
+)
+
+# Which ~/.config subdirs/files to copy. Keep this list curated — the goal
+# is "stuff that defines how my machine looks and behaves," not every cache
+# or app DB. Anything not here is skipped.
+CFG_PATHS=(
+    quickshell
+    hypr
+    tinct
+    caelestia
+    illogical-impulse
+    fish  zsh  zshrc.d
+    nvim
+    starship.toml
+    foot  kitty  wezterm  wezterm.lua  alacritty
+    tmux
+    dunst  mako
+    rofi  fuzzel  wofi  wlogout
+    gtk-3.0  gtk-4.0  gtkrc  gtkrc-2.0
+    qt5ct  qt6ct  Kvantum  QtProject.conf
+    fontconfig
+    btop  htop  nvtop
+    mpv  ncmpcpp  cava
+    zathura
+    aerc  aichat
+    yt-dlp  gallery-dl  aria2
+    ranger  vifm
+    gh
+    spicetify
+    picom  niri  i3  awesome
+    waypaper  swww
+    autostart
+    mimeapps.list  user-dirs.dirs  user-dirs.locale
+    xdg-desktop-portal
+    environment.d
+    systemd/user
+    pikaur.conf  yay  paru
+    chrome-flags.conf  code-flags.conf  thorium-flags.conf
+    mozilla
+)
+
+# Per-config rsync excludes. Empty by default — Mozilla, etc. are copied
+# byte-for-byte to keep every profile artefact (Sidebery state, sessions,
+# bookmarks, extension storage, even cache). Add filters here per-app if
+# something balloons: CFG_EXCLUDES[name]="--exclude=foo --exclude=bar"
+declare -A CFG_EXCLUDES=()
+
+# Audio production state — plugin dirs + Bitwig Studio user data. Big
+# (~10G on this machine) but irreplaceable: bundled presets, project files,
+# custom controller scripts. Skip with --no-audio.
+AUDIO_PATHS=(
+    .vst                # VST2 plugins + bundled presets
+    .vst3               # VST3 plugins
+    .clap               # CLAP plugins
+    .lv2                # LV2 plugins
+    .ladspa             # LADSPA
+    .BitwigStudio       # Bitwig prefs, library refs, controller scripts
+    "Bitwig Studio"     # user library: projects, samples, presets
+    .wine               # Wine prefix: system.reg/user.reg (plugin licenses)
+                        #   + drive_c/users/ (per-plugin AppData / serials)
+)
+
+# yabridgectl lives under ~/.config — add it to the curated list so Windows
+# VST bridging survives a restore.
+CFG_PATHS+=(yabridgectl)
+
+# User-installed apps + per-app state in ~/.local/share. ~/Applications is
+# manual AppImages (not packaged). ~/.local/share holds chats, sessions,
+# fonts, icons, custom .desktop entries — mixed user state. Excluded subdirs
+# below are large but pure caches (rebuilt by their owning tool on next run).
+APPS_PATHS=(
+    Applications        # AppImages installed by hand
+    .local/share        # per-app state: Telegram, nvim, claude, KDE, …
+)
+APPS_EXCLUDES=(
+    --exclude='.local/share/Steam/steamapps/common'   # game installs (huge, re-downloadable)
+    --exclude='.local/share/umu'                      # Proton runtime cache
+    --exclude='.local/share/uv'                       # Python venv cache
+    --exclude='.local/share/baloo'                    # KDE file index (auto-rebuilds)
+    --exclude='.local/share/Trash'                    # trash
+    --exclude='*/Cache'  --exclude='*/cache'  --exclude='*/CachedData'
+    --exclude='*/logs'   --exclude='*/Crashpad'
+)
+
+# ComfyUI lives on /mnt/storage (outside $HOME), so the home/apps sections miss
+# it entirely. Capture only the irreplaceable hand-made bits: the launch script
+# (ROCm/GPU config) and our custom nodes. Models + venv are re-downloadable and
+# huge → deliberately excluded. Workflow JSONs (from ~/Downloads) added below.
+COMFY_ROOT="/mnt/storage/usr/mooon/.local/share/ComfyUI"
+COMFY_PATHS=(
+    start.sh
+    start.sh.bak
+    custom_nodes/comfyui-text-line-batch
+    custom_nodes/comfyui-text-line-selector
+    custom_nodes/comfyui-smart-vocal-fix
+    custom_nodes/comfyui-resemble-enhance
+    custom_nodes/comfyui-rvc-toggle
+    custom_nodes/comfyui-style-toggle
+    custom_nodes/comfyui-text-lab
+    custom_nodes/comfyui-text-history
+    custom_nodes/comfyui-vocal-character
+    custom_nodes/comfyui-autofree
+    custom_nodes/comfyui-vocal-delivery
+    user/default/workflows          # in-app saved workflows (if any)
+)
+# Exported workflow JSONs kept in ~/Downloads (small; capped at 20M each).
+COMFY_WORKFLOW_GLOB="$HOME/Downloads/*.json"
+
+# Dotfiles in $HOME (not ~/.config). Globs allowed.
+HOME_FILES=(
+    .zshrc  .zshenv  .zprofile  .zlogin  .zlogout
+    .bashrc  .bash_profile  .profile  .inputrc
+    .gitconfig  .gitignore_global
+    .tmux.conf
+    .xprofile  .xinitrc  .Xresources
+    .npmrc  .yarnrc  .cargo/config.toml
+    .ssh/config         # config only — keys live in ~/.secure
+    .gnupg/gpg.conf  .gnupg/gpg-agent.conf
+    .face  .icons
+    .local/share/applications/antigravity*.desktop
+)
+
+# ── arg parsing ───────────────────────────────────────────────────────────
+DRY_RUN=0
+DO_ETC=1
+DO_HOME=1
+DO_CFG=1
+DO_SCRIPTS=1
+DO_PACKAGES=1
+DO_SYSTEM=1
+DO_AUDIO=1
+DO_APPS=1
+DO_COMFY=1
+FULL=0
+FORCE=0
+ROTATE_N=""
+MODE="snapshot"
+
+while (($#)); do
+    case "$1" in
+        --dry-run)   DRY_RUN=1 ;;
+        --etc-only)  DO_HOME=0; DO_CFG=0; DO_SCRIPTS=0; DO_PACKAGES=0; DO_SYSTEM=0; DO_AUDIO=0; DO_APPS=0; DO_COMFY=0 ;;
+        --home-only) DO_ETC=0 ;;
+        --no-etc)    DO_ETC=0 ;;
+        --no-audio)  DO_AUDIO=0 ;;
+        --no-apps)   DO_APPS=0 ;;
+        --no-comfy)  DO_COMFY=0 ;;
+        --full)      FULL=1 ;;
+        --force)     FORCE=1 ;;
+        --to)        DEST_ROOT="$2"; CUSTOM_DEST=1; shift ;;
+        --rotate)    ROTATE_N="$2"; shift ;;
+        list)        MODE="list" ;;
+        diff)        MODE="diff"; shift; A="${1:-}"; B="${2:-}"; break ;;
+        -h|--help)   sed -n '2,30p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *)           echo "unknown arg: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+# --full: drop curation, copy literally everything that matters.
+if (( FULL )); then
+    # Replace curated config list with "every dir/file in ~/.config".
+    CFG_PATHS=()
+    if [[ -d "$HOME/.config" ]]; then
+        for entry in "$HOME/.config"/* "$HOME/.config"/.*; do
+            base=$(basename "$entry")
+            [[ "$base" == "." || "$base" == ".." ]] && continue
+            CFG_PATHS+=("$base")
+        done
+    fi
+    # No per-config excludes — we want it all.
+    declare -A CFG_EXCLUDES=()
+fi
+
+# ── helpers ───────────────────────────────────────────────────────────────
+log() { printf '\e[1;36m▶ %s\e[0m\n' "$*"; }
+ok()  { printf '\e[1;32m✓ %s\e[0m\n' "$*"; }
+warn(){ printf '\e[1;33m! %s\e[0m\n' "$*"; }
+err() { printf '\e[1;31m✗ %s\e[0m\n' "$*" >&2; }
+
+human_size() { du -sh "$1" 2>/dev/null | awk '{print $1}'; }
+
+# ── list/diff subcommands ─────────────────────────────────────────────────
+if [[ "$MODE" == "list" ]]; then
+    [[ -d "$DEST_ROOT" ]] || { warn "no backups at $DEST_ROOT"; exit 0; }
+    printf '%-22s %-8s %s\n' SNAPSHOT SIZE NOTE
+    for d in "$DEST_ROOT"/*/; do
+        [[ -d "$d" ]] || continue
+        name=$(basename "$d")
+        size=$(human_size "$d")
+        note=""
+        [[ -L "$DEST_ROOT/latest" && "$(readlink "$DEST_ROOT/latest")" == "$name" ]] && note="← latest"
+        printf '%-22s %-8s %s\n' "$name" "$size" "$note"
+    done
+    exit 0
+fi
+
+if [[ "$MODE" == "diff" ]]; then
+    [[ -z "${A:-}" ]] && A=$(ls -1 "$DEST_ROOT" | grep -v latest | sort | tail -1)
+    [[ -z "${B:-}" ]] && B=$(ls -1 "$DEST_ROOT" | grep -v latest | sort | tail -2 | head -1)
+    log "diff $B → $A"
+    diff -qr "$DEST_ROOT/$B" "$DEST_ROOT/$A" 2>/dev/null | head -100
+    exit 0
+fi
+
+# ── preflight ─────────────────────────────────────────────────────────────
+# Verify the storage device is actually mounted — otherwise mkdir would
+# silently create the dir on root fs (already at 99%) and fill it. Skipped
+# when --to was used: the user explicitly chose that path, trust them.
+if [[ -z "${CUSTOM_DEST:-}" ]]; then
+    storage_mount=$(df --output=target "$DEST_ROOT" 2>/dev/null | tail -1)
+    if [[ -z "$storage_mount" ]] || ! mountpoint -q "$storage_mount"; then
+        parent="$(dirname "$DEST_ROOT")"
+        if ! mountpoint -q "$parent" 2>/dev/null && [[ "$parent" != "/" ]]; then
+            err "$parent is not a mounted filesystem — refusing to write to root fs"
+            err "mount your storage drive first, or pass --to <path> to override"
+            exit 1
+        fi
+    fi
+fi
+log "destination: $DEST_ROOT${CUSTOM_DEST:+  (custom)}"
+[[ -d "$DEST_ROOT" ]] || mkdir -p "$DEST_ROOT" || { err "cannot create $DEST_ROOT"; exit 1; }
+
+# Single-instance lock — two backups racing would corrupt --link-dest dedup.
+LOCK="$DEST_ROOT/.backup.lock"
+exec 200>"$LOCK"
+if ! flock -n 200; then
+    err "another backup is running (lock: $LOCK)"
+    exit 1
+fi
+
+# ── space check ───────────────────────────────────────────────────────────
+# Don't guess — measure the actual sources that will be copied and compare to
+# free bytes on the destination. With --link-dest, an incremental snapshot
+# only pays for the *diff* against `latest`, so the real cost is much lower
+# than the source total on the 2nd+ run. We still require the full source
+# size to fit in the worst case (everything-changed), so a runaway snapshot
+# can't fill the disk.
+
+bytes_human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"; }
+
+# Sum the sizes (in bytes) of every source path we'd actually copy.
+declare -i need_bytes=0
+sum_paths() {
+    local base="$1"; shift
+    local p
+    for p in "$@"; do
+        local old_ifs="$IFS"
+        IFS=
+        local old_nullglob
+        old_nullglob=$(shopt -p nullglob || true)
+        shopt -s nullglob
+        local matched=($base/$p)
+        eval "$old_nullglob"
+        IFS="$old_ifs"
+
+        local src
+        for src in "${matched[@]}"; do
+            [[ -e "$src" ]] || continue
+            local s
+            s=$(/usr/bin/du -sb --apparent-size "$src" 2>/dev/null | awk '{print $1}')
+            (( need_bytes += ${s:-0} ))
+        done
+    done
+}
+(( DO_CFG ))    && sum_paths "$HOME/.config" "${CFG_PATHS[@]}"
+(( DO_HOME ))   && sum_paths "$HOME"         "${HOME_FILES[@]}"
+(( DO_AUDIO )) && [[ -n "${AUDIO_PATHS+x}" ]] && sum_paths "$HOME" "${AUDIO_PATHS[@]}"
+(( DO_APPS  )) && [[ -n "${APPS_PATHS+x}"  ]] && sum_paths "$HOME" "${APPS_PATHS[@]}"
+(( DO_SCRIPTS )) && [[ -d "$HOME/.scripts" ]] && {
+    s=$(/usr/bin/du -sb "$HOME/.scripts" | awk '{print $1}')
+    (( need_bytes += s ))
+}
+(( DO_COMFY )) && [[ -d "$COMFY_ROOT" ]] && sum_paths "$COMFY_ROOT" "${COMFY_PATHS[@]}"
+# /etc is a rough estimate — du needs sudo for the whole tree, so skip the
+# heavy walk and just add 200 MB of headroom.
+(( DO_ETC )) && (( need_bytes += 200 * 1024 * 1024 ))
+
+# Free space on the destination, in bytes.
+free_bytes=$(df --output=avail -B1 "$DEST_ROOT" 2>/dev/null | tail -1)
+free_bytes=${free_bytes:-0}
+
+# Required headroom: 1 GB on top of source total so rsync has working room.
+declare -i headroom=$((1024 * 1024 * 1024))
+declare -i required=$((need_bytes + headroom))
+
+# If there's already a `latest`, we'll mostly hardlink — show a likely-real
+# estimate too (20% of source total) but still gate on the worst case.
+declare -i likely=$required
+if [[ -L "$DEST_ROOT/latest" ]]; then
+    likely=$((need_bytes / 5 + headroom))
+fi
+
+log "space check"
+printf '  sources:   %s\n' "$(bytes_human $need_bytes)"
+printf '  required:  %s  (worst case, full re-copy)\n' "$(bytes_human $required)"
+[[ -L "$DEST_ROOT/latest" ]] && \
+    printf '  likely:    %s  (incremental, --link-dest dedup)\n' "$(bytes_human $likely)"
+printf '  free:      %s on %s\n' \
+    "$(bytes_human $free_bytes)" "$(df --output=target "$DEST_ROOT" | tail -1)"
+
+if (( free_bytes < required )); then
+    err "not enough free space — need $(bytes_human $required), have $(bytes_human $free_bytes)"
+    err "to proceed anyway (incremental snapshot will likely fit), re-run with --force"
+    (( FORCE )) || exit 1
+    warn "--force set: continuing despite worst-case shortfall"
+fi
+ok "space ok"
+
+# Mozilla profile has live SQLite (places/cookies/storage) — rsync'ing while
+# Firefox writes to WAL produces torn copies that can refuse to open later.
+if (( DO_CFG )) && pgrep -x firefox >/dev/null 2>&1; then
+    if (( FORCE )); then
+        warn "Firefox is running — copying live profile anyway (--force)"
+    else
+        err "Firefox is running — backing up its profile now would copy torn SQLite databases."
+        err "  Quit Firefox and retry, or re-run with --force to copy anyway."
+        exit 1
+    fi
+fi
+
+TS=$(date +%Y%m%d-%H%M%S)
+DEST="$DEST_ROOT/$TS"
+LINK_DEST=""
+if [[ -L "$DEST_ROOT/latest" ]]; then
+    LINK_DEST="--link-dest=$DEST_ROOT/latest"
+fi
+
+RSYNC_OPTS=(-aHAX --info=progress2 --human-readable --no-inc-recursive)
+[[ $DRY_RUN == 1 ]] && RSYNC_OPTS+=(--dry-run)
+
+log "snapshot → $DEST"
+mkdir -p "$DEST"/{etc,home,config,scripts,packages,system,audio,apps,comfy}
+
+# ── /etc ──────────────────────────────────────────────────────────────────
+if (( DO_ETC )); then
+    log "/etc → etc/"
+    # Build a filter file: include each path, exclude everything else.
+    filt="$DEST/.etc-filter"
+    {
+        for p in "${ETC_PATHS[@]}"; do
+            # include all parent dirs so rsync descends, then the path itself
+            IFS=/ read -ra parts <<<"$p"
+            acc=""
+            for part in "${parts[@]}"; do
+                acc="${acc:+$acc/}$part"
+                echo "+ /$acc"
+            done
+            echo "+ /$p/***"
+        done
+        echo "- *"
+    } > "$filt"
+    sudo rsync "${RSYNC_OPTS[@]}" --filter="merge $filt" \
+        ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/etc} \
+        /etc/ "$DEST/etc/" 2>&1 | tail -3
+    sudo chown -R "$USER:$USER" "$DEST/etc"
+    rm -f "$filt"
+    ok "etc/ → $(human_size "$DEST/etc")"
+fi
+
+# ── ~/.config (curated) ───────────────────────────────────────────────────
+if (( DO_CFG )); then
+    log "~/.config → config/"
+    for p in "${CFG_PATHS[@]}"; do
+        src="$HOME/.config/$p"
+        [[ -e "$src" ]] || continue
+        dst="$DEST/config/$p"
+        mkdir -p "$(dirname "$dst")"
+        # shellcheck disable=SC2086
+        rsync "${RSYNC_OPTS[@]}" \
+            --exclude='Cache*' --exclude='cache' --exclude='*.log' \
+            ${CFG_EXCLUDES[$p]:-} \
+            ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/config/$p} \
+            "$src" "$(dirname "$dst")/" >/dev/null 2>&1
+    done
+    ok "config/ → $(human_size "$DEST/config") ($(ls "$DEST/config" | wc -l) entries)"
+fi
+
+# ── $HOME dotfiles ────────────────────────────────────────────────────────
+if (( DO_HOME )); then
+    log "\$HOME dotfiles → home/"
+    for f in "${HOME_FILES[@]}"; do
+        old_ifs="$IFS"
+        IFS=
+        old_nullglob=$(shopt -p nullglob || true)
+        shopt -s nullglob
+        matched=($HOME/$f)
+        eval "$old_nullglob"
+        IFS="$old_ifs"
+
+        for src in "${matched[@]}"; do
+            [[ -e "$src" ]] || continue
+            rel="${src#$HOME/}"
+            dst="$DEST/home/$rel"
+            mkdir -p "$(dirname "$dst")"
+            rsync "${RSYNC_OPTS[@]}" \
+                ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/home/$rel} \
+                "$src" "$dst" >/dev/null 2>&1 || true
+        done
+    done
+    ok "home/ → $(human_size "$DEST/home")"
+fi
+
+# ── audio: ~/.vst, ~/.vst3, ~/.clap, ~/.BitwigStudio, ~/Bitwig Studio ────
+if (( DO_AUDIO )); then
+    log "audio (~10G first run, then incremental) → audio/"
+    for p in "${AUDIO_PATHS[@]}"; do
+        src="$HOME/$p"
+        [[ -e "$src" ]] || continue
+        # rsync the dir contents into audio/<name>/ — quote $p to survive
+        # the space in "Bitwig Studio".
+        dst="$DEST/audio/$p"
+        mkdir -p "$(dirname "$dst")"
+        rsync "${RSYNC_OPTS[@]}" \
+            ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/audio/$p} \
+            "$src" "$(dirname "$dst")/" >/dev/null 2>&1
+    done
+    ok "audio/ → $(human_size "$DEST/audio")"
+fi
+
+# ── apps: ~/Applications + ~/.local/share (curated excludes) ─────────────
+if (( DO_APPS )); then
+    log "apps (AppImages + ~/.local/share) → apps/"
+    for p in "${APPS_PATHS[@]}"; do
+        src="$HOME/$p"
+        [[ -e "$src" ]] || continue
+        dst="$DEST/apps/$p"
+        mkdir -p "$(dirname "$dst")"
+        rsync "${RSYNC_OPTS[@]}" "${APPS_EXCLUDES[@]}" \
+            ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/apps/$p} \
+            "$src" "$(dirname "$dst")/" >/dev/null 2>&1
+    done
+    ok "apps/ → $(human_size "$DEST/apps")"
+fi
+
+# ── ~/.scripts ────────────────────────────────────────────────────────────
+if (( DO_SCRIPTS )) && [[ -d "$HOME/.scripts" ]]; then
+    log "~/.scripts → scripts/"
+    rsync "${RSYNC_OPTS[@]}" \
+        ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/scripts} \
+        "$HOME/.scripts/" "$DEST/scripts/" >/dev/null 2>&1
+    ok "scripts/ → $(human_size "$DEST/scripts") ($(find "$DEST/scripts" -maxdepth 1 -type f | wc -l) files)"
+fi
+
+# ── ComfyUI: custom nodes + launch config + workflows ─────────────────────
+if (( DO_COMFY )) && [[ -d "$COMFY_ROOT" ]]; then
+    log "ComfyUI (start.sh + custom nodes + workflows) → comfy/"
+    for p in "${COMFY_PATHS[@]}"; do
+        src="$COMFY_ROOT/$p"
+        [[ -e "$src" ]] || continue
+        dst="$DEST/comfy/$p"
+        mkdir -p "$(dirname "$dst")"
+        rsync "${RSYNC_OPTS[@]}" --exclude='__pycache__' --exclude='*.pyc' \
+            ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/comfy/$p} \
+            "$src" "$(dirname "$dst")/" >/dev/null 2>&1
+    done
+    # exported workflow JSONs from ~/Downloads (small; skip anything >20M)
+    old_nullglob=$(shopt -p nullglob || true); shopt -s nullglob
+    wf=($COMFY_WORKFLOW_GLOB); eval "$old_nullglob"
+    if (( ${#wf[@]} )); then
+        mkdir -p "$DEST/comfy/workflows"
+        rsync "${RSYNC_OPTS[@]}" --max-size=20M \
+            ${LINK_DEST:+--link-dest=$DEST_ROOT/latest/comfy/workflows} \
+            "${wf[@]}" "$DEST/comfy/workflows/" >/dev/null 2>&1
+    fi
+    ok "comfy/ → $(human_size "$DEST/comfy")"
+fi
+
+# ── package + service lists ───────────────────────────────────────────────
+if (( DO_PACKAGES )); then
+    log "package lists → packages/"
+    p="$DEST/packages"
+    pacman -Qqe         > "$p/pacman-explicit.txt"    2>/dev/null
+    pacman -Qqen        > "$p/pacman-repo.txt"        2>/dev/null
+    pacman -Qqem        > "$p/pacman-foreign.txt"     2>/dev/null
+    pacman -Qq          > "$p/pacman-all.txt"         2>/dev/null
+    command -v flatpak >/dev/null && \
+        flatpak list --app --columns=application > "$p/flatpak.txt" 2>/dev/null
+    command -v snap    >/dev/null && \
+        snap list | awk 'NR>1{print $1}' > "$p/snap.txt" 2>/dev/null
+    command -v cargo   >/dev/null && \
+        cargo install --list | grep -E '^\S+ v' | awk '{print $1}' > "$p/cargo.txt" 2>/dev/null
+    command -v npm     >/dev/null && \
+        npm ls -g --depth=0 --parseable 2>/dev/null | tail -n+2 | xargs -n1 basename > "$p/npm-global.txt"
+    command -v pip     >/dev/null && \
+        pip list --user --format=freeze > "$p/pip-user.txt" 2>/dev/null
+    systemctl list-unit-files --state=enabled,enabled-runtime --no-legend \
+        2>/dev/null | awk '{print $1}' > "$p/systemd-enabled.txt"
+    systemctl --user list-unit-files --state=enabled,enabled-runtime --no-legend \
+        2>/dev/null | awk '{print $1}' > "$p/systemd-user-enabled.txt"
+    ok "packages/ → $(wc -l <"$p/pacman-explicit.txt") explicit, $(wc -l <"$p/pacman-foreign.txt" 2>/dev/null) AUR"
+fi
+
+# ── system fingerprint ────────────────────────────────────────────────────
+if (( DO_SYSTEM )); then
+    log "system info → system/"
+    s="$DEST/system"
+    uname -a                       > "$s/uname.txt"
+    cat /proc/cmdline              > "$s/kernel-cmdline.txt"
+    lsblk -f                       > "$s/lsblk.txt"          2>/dev/null
+    df -hT                         > "$s/df.txt"             2>/dev/null
+    mount                          > "$s/mount.txt"          2>/dev/null
+    ip -br a                       > "$s/ip-addr.txt"        2>/dev/null
+    hostnamectl                    > "$s/hostnamectl.txt"    2>/dev/null
+    localectl                      > "$s/localectl.txt"      2>/dev/null
+    timedatectl                    > "$s/timedatectl.txt"    2>/dev/null
+    command -v hyprctl >/dev/null && hyprctl version         > "$s/hyprctl-version.txt" 2>/dev/null
+    command -v gpu-screen-recorder >/dev/null || true
+    lspci -nnk | grep -i -A2 -E 'vga|3d|display' > "$s/gpu.txt" 2>/dev/null
+fi
+
+# ── manifest + RESTORE.md ─────────────────────────────────────────────────
+{
+    echo "snapshot:  $TS"
+    echo "host:      $(hostname)"
+    echo "user:      $USER"
+    echo "kernel:    $(uname -r)"
+    echo "created:   $(date -Iseconds)"
+    echo "size:      $(human_size "$DEST")"
+    echo "previous:  $([[ -L $DEST_ROOT/latest ]] && readlink "$DEST_ROOT/latest" || echo none)"
+    echo
+    echo "sections:"
+    for sec in etc home config audio apps scripts comfy packages system; do
+        [[ -d "$DEST/$sec" ]] && printf '  %-10s %s\n' "$sec" "$(human_size "$DEST/$sec")"
+    done
+} > "$DEST/manifest.txt"
+
+cat > "$DEST/RESTORE.md" <<EOF
+# Restore $TS
+
+Restore everything (interactive):
+    ~/.scripts/install --from $TS all
+
+Just configs (no packages, no etc):
+    ~/.scripts/install --from $TS configs
+
+Just system /etc files (needs sudo):
+    ~/.scripts/install --from $TS etc
+
+Reinstall packages from list:
+    ~/.scripts/install --from $TS packages
+
+Manual one-off restores:
+    rsync -aHAX $DEST/config/<name>/  ~/.config/<name>/
+    sudo rsync -aHAX $DEST/etc/<path> /etc/<path>
+
+Regenerate Lutris game launchers + auto-sync watcher (after restoring Lutris):
+    ~/.scripts/lutris-desktop-sync --install
+EOF
+
+# ── flip 'latest' symlink ─────────────────────────────────────────────────
+if (( ! DRY_RUN )); then
+    ln -sfn "$TS" "$DEST_ROOT/latest"
+    ok "latest → $TS"
+fi
+
+# ── rotate ────────────────────────────────────────────────────────────────
+if [[ -n "$ROTATE_N" ]]; then
+    log "rotating: keep newest $ROTATE_N"
+    mapfile -t snaps < <(ls -1 "$DEST_ROOT" | grep -E '^[0-9]{8}-[0-9]{6}$' | sort)
+    drop=$(( ${#snaps[@]} - ROTATE_N ))
+    if (( drop > 0 )); then
+        for s in "${snaps[@]:0:$drop}"; do
+            warn "removing $s"
+            rm -rf "${DEST_ROOT:?}/$s"
+        done
+    fi
+fi
+
+ok "done — $(human_size "$DEST") at $DEST"
