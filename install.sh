@@ -21,7 +21,16 @@ put() {   # put SRC DEST: one that fails is reported, the rest still goes in
     fi
     mkdir -p "$(dirname "$2")" && rm -rf "$2" && cp -r "$1" "$2" || { echo "could not install $2" >&2; failed+=("$2"); }
 }
+# the shell's settings are changed in the shell (Windows or ii look, wallpaper, …): the repo's
+# config.json is only the defaults under them, so a re-run no longer resets those choices
+cfg="$HOME/.config/illogical-impulse/config.json"
+mine=""; [ -f "$cfg" ] && command -v jq >/dev/null && mine=$(mktemp) && cp "$cfg" "$mine"
 for d in config/*; do put "$d" "$HOME/.config/${d#config/}"; done
+if [ -n "$mine" ]; then
+    jq -s '.[0] * .[1]' "$cfg" "$mine" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg" && echo "kept your shell settings in $cfg" \
+        || { rm -f "$cfg.tmp"; echo "could not merge your shell settings (they are in the backup)" >&2; }
+    rm -f "$mine"
+fi
 put home/.scripts "$HOME/.scripts"
 # paths to the other laptop's home (/home/caesar), e.g. in the shell's settings file: pointed at this home
 if [ "$HOME" != /home/caesar ]; then
