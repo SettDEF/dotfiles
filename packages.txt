@@ -1,0 +1,8 @@
+# what the zsh config, functions, scripts and Hyprland config call (Arch repos)
+zsh git curl wget rsync less man-db tree unzip zip unrar p7zip bc jq socat pv lsof psmisc
+eza fd ripgrep fzf bat starship neovim lua ranger btop htop
+openssh openbsd-netcat bind iw usbutils pciutils lm_sensors upower smartmontools inotify-tools
+ffmpeg mpv yt-dlp imagemagick tesseract playerctl alsa-utils pavucontrol cava cmus
+wl-clipboard cliphist wtype ydotool grim slurp hyprpicker hyprshot hyprlock hypridle
+xclip xsel xdg-utils xorg-xwininfo xorg-xprop xorg-xrandr xorg-xdpyinfo wmctrl
+libnotify zenity fuzzel kitty zathura zathura-pdf-mupdf translate-shell github-cli pacman-contrib
