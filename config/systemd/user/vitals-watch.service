@@ -7,7 +7,7 @@ After=default.target
 
 [Service]
 Type=simple
-ExecStart=/home/caesar/.scripts/apps/vitals/vitals --watch --interval 30
+ExecStart=%h/.scripts/apps/vitals/vitals --watch --interval 30
 Restart=always
 RestartSec=10
 # A monitor that shows up in its own process list is a bug. Keep it cheap.

@@ -3,7 +3,7 @@ Description=Dotos: reminders and extension sources
 After=graphical-session.target
 
 [Service]
-ExecStart=/home/caesar/.local/bin/dotos serve
+ExecStart=%h/.local/bin/dotos serve
 Restart=on-failure
 RestartSec=30
 Nice=10

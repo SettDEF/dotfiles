@@ -21,8 +21,8 @@
 # pending deferral:
 #   listener {
 #       timeout    = 900
-#       on-timeout = /home/caesar/.config/hypr/hyprland/scripts/idle-suspend.sh
-#       on-resume  = /home/caesar/.config/hypr/hyprland/scripts/idle-suspend.sh cancel
+#       on-timeout = ~/.config/hypr/hyprland/scripts/idle-suspend.sh
+#       on-resume  = ~/.config/hypr/hyprland/scripts/idle-suspend.sh cancel
 #   }
 #
 # Every decision is logged (journal tag: idle-suspend).

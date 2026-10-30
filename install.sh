@@ -19,6 +19,10 @@ put() {   # put SRC DEST: one that fails is reported, the rest still goes in
 }
 for d in config/*; do put "$d" "$HOME/.config/${d#config/}"; done
 put home/.scripts "$HOME/.scripts"
+# paths to the other laptop's home (/home/caesar), e.g. in the shell's settings file: pointed at this home
+if [ "$HOME" != /home/caesar ]; then
+    grep -rIl /home/caesar "$HOME/.config" "$HOME/.scripts" 2>/dev/null | while IFS= read -r f; do sed -i "s|/home/caesar|$HOME|g" "$f"; done
+fi
 # ~/.zshrc loads the real one in ~/.config/zsh
 if ! grep -qs 'config/zsh/.zshrc' "$HOME/.zshrc"; then
     [ -e "$HOME/.zshrc" ] && mv "$HOME/.zshrc" "$HOME/.zshrc.bak-$stamp"

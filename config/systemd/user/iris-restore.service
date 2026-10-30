@@ -7,7 +7,7 @@ PartOf=graphical-session.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStartPre=/bin/sleep 3
-ExecStart=/bin/sh -c 'cat %h/.config/iris/color | /home/caesar/.local/bin/iris hid solid - --vivid'
+ExecStart=/bin/sh -c 'cat %h/.config/iris/color | %h/.local/bin/iris hid solid - --vivid'
 
 [Install]
 WantedBy=graphical-session.target

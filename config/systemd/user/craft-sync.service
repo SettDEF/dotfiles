@@ -1,6 +1,6 @@
 [Unit]
 Description=Package new ArtCraft Crafting App releases into the local pacman repo
-Documentation=file:///home/caesar/.scripts/apps/photocraft/craft-sync
+Documentation=file://%h/.scripts/apps/photocraft/craft-sync
 After=network-online.target
 
 [Service]

@@ -4,6 +4,6 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/caesar/.local/bin/vaned fetch
+ExecStart=%h/.local/bin/vaned fetch
 Nice=19
 IOSchedulingClass=idle

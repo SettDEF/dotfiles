@@ -3,5 +3,5 @@ Description=Reap orphaned Xvfb instances left behind by killed test harnesses
 
 [Service]
 Type=oneshot
-ExecStart=/home/caesar/.scripts/reap-orphan-xvfb
+ExecStart=%h/.scripts/reap-orphan-xvfb
 Nice=10

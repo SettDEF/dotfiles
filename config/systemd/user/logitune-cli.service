@@ -4,7 +4,7 @@ After=default.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -u /home/caesar/.scripts/apps/knurl/logitune-cli --daemon
+ExecStart=/usr/bin/python3 -u %h/.scripts/apps/knurl/logitune-cli --daemon
 Restart=always
 RestartSec=5
 

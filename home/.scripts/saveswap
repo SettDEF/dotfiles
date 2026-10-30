@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-DB_DIR="/home/caesar/.local/share/saveswap"
+DB_DIR="$HOME/.local/share/saveswap"
 mkdir -p "$DB_DIR"
 DB_PATH="$DB_DIR/state.db"
 
@@ -333,7 +333,7 @@ echo "Game '$GAME': Profile successfully switched to '$PROFILE'."
 if [[ "$NOTIFY" -eq 1 ]] && command -v notify-send >/dev/null; then
     # Try to resolve a nice game/profile specific icon from Lutris assets
     ICON="input-gaming"
-    ICON_DIR="/home/caesar/.local/share/icons/hicolor/128x128/apps"
+    ICON_DIR="$HOME/.local/share/icons/hicolor/128x128/apps"
     SPECIFIC_ICON="$ICON_DIR/lutris_${GAME}-${PROFILE}.png"
     GENERIC_ICON="$ICON_DIR/lutris_${GAME}.png"
 

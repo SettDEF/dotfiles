@@ -3,5 +3,5 @@ Description=Collect app keybinds (tmux, WezTerm, …) for the shell's cheatsheet
 
 [Service]
 Type=oneshot
-ExecStart=/home/caesar/.config/quickshell/ii/scripts/keybinds-sync/keybinds-sync
+ExecStart=%h/.config/quickshell/ii/scripts/keybinds-sync/keybinds-sync
 Nice=10

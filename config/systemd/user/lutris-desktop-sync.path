@@ -2,7 +2,7 @@
 Description=Watch the Lutris library and regenerate .desktop launchers
 
 [Path]
-PathModified=/home/caesar/.local/share/lutris/pga.db
+PathModified=%h/.local/share/lutris/pga.db
 Unit=lutris-desktop-sync.service
 
 [Install]

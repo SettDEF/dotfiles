@@ -2,7 +2,7 @@
 sudo mkdir -p /mnt/NUKE-9100
 
 # 2. Skript updaten
-cat > /home/caesar/.scripts/system/disk/mount_nuke-9100.sh << 'EOF'
+cat > $HOME/.scripts/system/disk/mount_nuke-9100.sh << 'EOF'
 #!/bin/bash
 
 # =============================================
@@ -62,4 +62,4 @@ echo ""
 EOF
 
 # Ausführbar machen
-chmod +x /home/caesar/.scripts/system/disk/mount_nuke-9100.sh
+chmod +x $HOME/.scripts/system/disk/mount_nuke-9100.sh

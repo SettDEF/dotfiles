@@ -5,7 +5,7 @@ Wants=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/home/caesar/.scripts/apps/knurl/kinetix --daemon
+ExecStart=%h/.scripts/apps/knurl/kinetix --daemon
 Restart=always
 RestartSec=3
 Environment=PATH=/usr/local/bin:/usr/bin:/bin

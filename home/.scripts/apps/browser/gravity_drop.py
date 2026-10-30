@@ -43,10 +43,10 @@ FOLDERS = {
     "tooown": "/mnt/storage/usr/mooon/vault/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys",
     "rvc": "/mnt/storage/usr/mooon/vault/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys",
     "voices": "/mnt/storage/usr/mooon/vault/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys",
-    "downloads": "/home/caesar/Downloads",
-    "music": "/home/caesar/Music",
-    "videos": "/home/caesar/Videos",
-    "documents": "/home/caesar/Documents"
+    "downloads": os.path.expanduser("~/Downloads"),
+    "music": os.path.expanduser("~/Music"),
+    "videos": os.path.expanduser("~/Videos"),
+    "documents": os.path.expanduser("~/Documents")
 }
 
 CATEGORY_LABELS = {
