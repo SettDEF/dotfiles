@@ -98,7 +98,6 @@ generated_wallpapers=()
 
 # Generate wallpapers with the closest colors from the palette
 for ((i = 0; i < monitor_count; i++)); do
-    if [[ "wc ${shuffled_wallpapers}" ]];
     wallpaper="${shuffled_wallpapers[$i]}"
     echo -e " \e[1;32mFound\e[0m and use \e[1;35m$wallpaper\e[0m"
     output="$TMP_DIR/wallpaper_$i.png"
