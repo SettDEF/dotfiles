@@ -2,7 +2,8 @@
 -- this machine's folders from ~/.config/paths.env (STORAGE, PROJECTS_DIR, VIDEOS_DIR …), for every program started here
 local P = {}
 do
-    local f = io.popen(". \"$HOME/.config/paths.env\" 2>/dev/null; env")
+    -- loom runs this without io: then nothing here (it never stops the rest of the config)
+    local f = io and io.popen and io.popen(". \"$HOME/.config/paths.env\" 2>/dev/null; env")
     for line in (f and f:read("*a") or ""):gmatch("[^\n]+") do
         local k, v = line:match("^([A-Z_]+_DIR)=(.*)$")
         if not k then k, v = line:match("^(STORAGE)=(.*)$") end
