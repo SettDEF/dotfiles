@@ -30,8 +30,14 @@ export LESS=$LESS" -S"
 
 #-------- Exports {{{
 #-----------------------------------------------------
-# set display
-export DISPLAY=:0
+# set display: the session's own. XWayland's number differs per machine (:1 when a
+# display manager's X server holds :0, as sddm's does), and :0 sent every X11 program
+# to that server: "Authorization required". Unset (a tty, ssh): XWayland's, if it runs.
+if [ -z "${DISPLAY:-}" ]; then
+    _xw=$(pgrep -u "$(id -u)" -a Xwayland 2>/dev/null | grep -oE ' :[0-9]+' | head -1 | tr -d ' ')
+    [ -n "$_xw" ] && export DISPLAY="$_xw"
+    unset _xw
+fi
 
 # set 256color support (doesnt work with older apps like abook)
 # export TERM="screen-256color"
@@ -1664,14 +1670,14 @@ FF_OUTPUT_AUDIO=~/Public/screencast/aa_audio_baking.mp3
 ffcast-fullscreen-movie() {
   $FF_RECORDER -thread_queue_size 512 -f alsa -ac $FF_MIC_CH -i $FF_MIC -async 1 -f x11grab -r 30 \
   -s $(xwininfo -root | grep 'geometry' |awk '{print $2;}' | cut -d\+ -f1) \
-  -i :0.0 -vcodec libx264 -pix_fmt yuv444p -preset ultrafast -crf 0 \
+  -i ${DISPLAY}.0 -vcodec libx264 -pix_fmt yuv444p -preset ultrafast -crf 0 \
   -acodec libmp3lame -ab 320k -threads 0 -y $FF_OUTPUT_MOVIE
 }
 
 ffcast-fullscreen-videotrack() {
   $FF_RECORDER -f x11grab -r 30 \
   -s $(xwininfo -root | grep 'geometry' |awk '{print $2;}' | cut -d\+ -f1) \
-  -i :0.0 -vcodec libx264 -pix_fmt yuv444p -preset ultrafast -crf 0 \
+  -i ${DISPLAY}.0 -vcodec libx264 -pix_fmt yuv444p -preset ultrafast -crf 0 \
   -threads 0 -y $FF_OUTPUT_VIDEO
 }
 
@@ -1688,7 +1694,7 @@ ffcast-window-movie() {
   WIN_XY=$(echo $INFO | grep -oEe 'Corners:\s+\+[0-9]+\+[0-9]+' | grep -oEe '[0-9]+\+[0-9]+' | sed -e 's/\+/,/' )
 
   $FF_RECORDER -thread_queue_size 512 -f alsa -ac $FF_MIC_CH -i $FF_MIC -async 1 -f x11grab -r 30 \
-  -s $WIN_GEO -i :0.0+$WIN_XY -vcodec libx264 -pix_fmt yuv444p \
+  -s $WIN_GEO -i ${DISPLAY}.0+$WIN_XY -vcodec libx264 -pix_fmt yuv444p \
   -preset ultrafast -crf 0 -acodec libmp3lame -ab 320k \
   -threads 0 -y $FF_OUTPUT_MOVIE
 }
@@ -1699,7 +1705,7 @@ ffcast-window-videotrack() {
   WIN_XY=$(echo $INFO | grep -oEe 'Corners:\s+\+[0-9]+\+[0-9]+' | grep -oEe '[0-9]+\+[0-9]+' | sed -e 's/\+/,/' )
 
   $FF_RECORDER -f x11grab -r 30 \
-  -s $WIN_GEO -i :0.0+$WIN_XY -vcodec libx264 -pix_fmt yuv444p \
+  -s $WIN_GEO -i ${DISPLAY}.0+$WIN_XY -vcodec libx264 -pix_fmt yuv444p \
   -preset ultrafast -crf 0 \
   -threads 0 -y $FF_OUTPUT_VIDEO
 }
@@ -3527,8 +3533,9 @@ FFX_MIC_FREQ="44100"
 FFX_SOUNDSYS="pulse"
 # FFX_SOUNDSYS="alsa"
 
-# resolution
-FFX_RESO_FULL=$(xwininfo -root | grep 'geometry' |awk '{print $2;}' | cut -d\+ -f1)
+# resolution: asked when a recording starts, not at every shell start (xwininfo
+# then ran in each new terminal and printed its X11 error there)
+ffx_reso_full() { xwininfo -root | grep 'geometry' |awk '{print $2;}' | cut -d\+ -f1; }
 
 # output location
 FFX_OUTPUT_MOVIE=~/Public/screencast/mm_movie_baking.mkv
@@ -3539,7 +3546,7 @@ ffxcast_fullscreen_movie() {
   $FFX_RECORDER \
   -f $FFX_SOUNDSYS -ac $FFX_SPEAKER_CH -ar $FFX_SPEAKER_FREQ -i $FFX_SPEAKER \
   -f $FFX_SOUNDSYS -ac $FFX_MIC_CH -ar $FFX_MIC_FREQ -i $FFX_MIC \
-  -f x11grab -r 30 -s $FFX_RESO_FULL -i :0.0 \
+  -f x11grab -r 30 -s $(ffx_reso_full) -i ${DISPLAY}.0 \
   -filter_complex "[0]asyncts[spkr],[1]asyncts[mic],[spkr][mic]amix=inputs=2" \
   -c:v libx264 -pix_fmt yuv420p -preset ultrafast -crf 0 \
   -c:a libmp3lame -ac 2 -ar 44100 -b:a 320k \
@@ -3550,7 +3557,7 @@ ffxcast_fullscreen_movie() {
 #   $FFX_RECORDER \
 #   -f $FFX_SOUNDSYS -ac $FFX_SPEAKER_CH -ar $FFX_SPEAKER_FREQ -i $FFX_SPEAKER \
 #   -f $FFX_SOUNDSYS -ac $FFX_MIC_CH -ar $FFX_MIC_FREQ -i $FFX_MIC \
-#   -thread_queue_size 512 -f x11grab -r 30 -s $FFX_RESO_FULL -i :0.0 \
+#   -thread_queue_size 512 -f x11grab -r 30 -s $(ffx_reso_full) -i ${DISPLAY}.0 \
 #   -filter_complex "[0]asyncts[spkr],[1]asyncts[mic],[spkr][mic]amix=inputs=2" \
 #   -c:v libx264 -pix_fmt yuv420p -preset ultrafast -crf 0 \
 #   -c:a libmp3lame -ac 2 -ar 44100 -b:a 320k \
