@@ -1,0 +1,12 @@
+{
+  "name": "Heat Haze",
+  "kind": "glsl",
+  "shader": "heat.frag.qsb",
+  "samples": true,
+  "color": "#FFC500",
+  "strength": 0.16,
+  "speed": 1.0,
+  "fps": 24,
+  "icon": "local_fire_department",
+  "desc": "Slow rising shimmer, strongest toward the top."
+}

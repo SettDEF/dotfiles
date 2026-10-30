@@ -1,0 +1,6 @@
+{
+  "name": "Green Deck", "kind": "glsl", "shader": "balatro.frag.qsb",
+  "color": "#4BC292", "strength": 0.26, "speed": 0.8, "fps": 30,
+  "icon": "style", "desc": "Felt-table greens, slower and calmer.",
+  "defaults": { "c1": "#0E2E2A", "c2": "#4BC292", "p1": 0.34, "p2": 4, "p3": 0.20, "p4": 1.22 }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "High Stakes", "kind": "glsl", "shader": "balatro.frag.qsb",
+  "color": "#FFC500", "strength": 0.24, "speed": 0.9, "fps": 30,
+  "icon": "paid", "desc": "Amber and bronze, the money table.",
+  "defaults": { "c1": "#2E1D06", "c2": "#FFC500", "p1": 0.38, "p2": 4, "p3": 0.24, "p4": 1.28 }
+}

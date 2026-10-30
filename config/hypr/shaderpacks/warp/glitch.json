@@ -1,0 +1,12 @@
+{
+  "name": "Glitch",
+  "kind": "glsl",
+  "shader": "glitch.frag.qsb",
+  "samples": true,
+  "color": "#FE5F55",
+  "strength": 0.18,
+  "speed": 1.0,
+  "fps": 24,
+  "icon": "broken_image",
+  "desc": "Slices tear sideways with colour fringing \u2014 a broken signal."
+}

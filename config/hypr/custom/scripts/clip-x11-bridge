@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Mirror every Wayland text copy onto the X11 clipboard.
+#
+# Proton/Wine games run under XWayland and read only the X11 CLIPBOARD.
+# Hyprland's own sync does not always reach them (a code copied in Discord
+# would not paste into skate.), so this hands each copy to xclip directly.
+# A copy already on X11 is skipped, so the two clipboards cannot ping-pong.
+# Started by autostart in custom/execs.conf; the name stays 15 chars for pgrep -x.
+
+export DISPLAY="${DISPLAY:-:0}"
+# Name the process so `pgrep -x clip-x11-bridge` sees it (env bash would be "bash").
+printf %s clip-x11-bridge > /proc/$$/comm
+
+wl-paste --type text --watch bash -c '
+    new=$(cat)
+    [ -n "$new" ] || exit 0
+    cur=$(timeout 1 xclip -o -selection clipboard 2>/dev/null)
+    [ "$new" = "$cur" ] || printf "%s" "$new" | xclip -selection clipboard
+'

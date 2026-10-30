@@ -1,0 +1,12 @@
+{
+  "name": "Wobble",
+  "kind": "glsl",
+  "shader": "wobble.frag.qsb",
+  "samples": true,
+  "color": "#0093FF",
+  "strength": 0.16,
+  "speed": 1.0,
+  "fps": 30,
+  "icon": "waves",
+  "desc": "Liquid swim \u2014 the text itself bends and drifts."
+}

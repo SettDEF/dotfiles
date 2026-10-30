@@ -1,0 +1,9 @@
+{
+  "name": "Rage",
+  "kind": "vignette",
+  "color": "#FF6B00",
+  "strength": 0.45,
+  "speed": 3.2,
+  "icon": "local_fire_department",
+  "desc": "Fast orange pulse. Reads as urgency."
+}

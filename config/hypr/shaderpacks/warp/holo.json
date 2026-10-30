@@ -1,0 +1,5 @@
+{
+  "name": "Holographic", "kind": "glsl", "shader": "holo.frag.qsb", "samples": true,
+  "color": "#FE5F55", "strength": 0.28, "speed": 1.0, "fps": 30,
+  "icon": "blur_circular", "desc": "Bright glyphs shift hue; the background stays put."
+}

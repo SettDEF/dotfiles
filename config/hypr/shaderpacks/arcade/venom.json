@@ -1,0 +1,9 @@
+{
+  "name": "Venom",
+  "kind": "vignette",
+  "color": "#46E36B",
+  "strength": 0.4,
+  "speed": 0.7,
+  "icon": "science",
+  "desc": "Slow sickly green creep from the edges."
+}

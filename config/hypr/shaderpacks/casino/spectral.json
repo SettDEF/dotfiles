@@ -1,0 +1,6 @@
+{
+  "name": "Spectral", "kind": "glsl", "shader": "balatro.frag.qsb",
+  "color": "#00D2E8", "strength": 0.26, "speed": 1.4, "fps": 30,
+  "icon": "auto_awesome", "desc": "Cold cyan and violet, fast and thin.",
+  "defaults": { "c1": "#191A4A", "c2": "#00D2E8", "p1": 0.60, "p2": 6, "p3": 0.42, "p4": 1.05 }
+}

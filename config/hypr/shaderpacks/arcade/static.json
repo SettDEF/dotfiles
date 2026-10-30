@@ -1,0 +1,9 @@
+{
+  "name": "Static",
+  "kind": "grain",
+  "color": "#FFFFFF",
+  "strength": 0.16,
+  "speed": 14.0,
+  "icon": "blur_on",
+  "desc": "Rolling film grain / dead-channel noise."
+}

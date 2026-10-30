@@ -1,0 +1,9 @@
+{
+  "name": "Heartbeat",
+  "kind": "vignette",
+  "color": "#FF2A2A",
+  "strength": 0.55,
+  "speed": 1.3,
+  "icon": "favorite",
+  "desc": "Red edges breathing in and out — the low-health throb."
+}

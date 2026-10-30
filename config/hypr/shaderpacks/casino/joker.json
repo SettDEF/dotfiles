@@ -1,0 +1,6 @@
+{
+  "name": "Joker", "kind": "glsl", "shader": "balatro.frag.qsb",
+  "color": "#8867A6", "strength": 0.30, "speed": 1.2, "fps": 30,
+  "icon": "theater_comedy", "desc": "Purple and gold churn, livelier folds.",
+  "defaults": { "c1": "#2A1B4A", "c2": "#8867A6", "p1": 0.52, "p2": 5, "p3": 0.34, "p4": 1.10 }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Foil", "kind": "glsl", "shader": "foil.frag.qsb", "samples": true,
+  "color": "#0093FF", "strength": 0.30, "speed": 1.0, "fps": 30,
+  "icon": "auto_awesome", "desc": "Iridescent sheen riding across the real content."
+}

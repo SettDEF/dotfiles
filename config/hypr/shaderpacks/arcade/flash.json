@@ -1,0 +1,9 @@
+{
+  "name": "Flash",
+  "kind": "tint",
+  "color": "#FFFFFF",
+  "strength": 0.18,
+  "speed": 2.6,
+  "icon": "flare",
+  "desc": "Whole-window colour pulse, like a hit flash."
+}

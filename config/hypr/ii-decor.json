@@ -1,0 +1,63 @@
+{
+  "enabled": true,
+  "mode": "exclude",
+  "classes": [
+    "(?i)^(discord|vesktop|legcord|equibop|webcord)$",
+    "(?i)^(zen|zen-browser|zen-beta|zen-alpha|tela-zen.*)$",
+    "(?i)^(firefox.*|librewolf)$",
+    "^org\\.gnome\\..*",
+    "^org\\.quickshell$",
+    "^(vitals|dotos|kalends|reel|vane|tinct-cast|knurl)$"
+  ],
+  "height": 28,
+  "buttons": "right",
+  "buttonSize": 12,
+  "buttonGap": 8,
+  "padding": 10,
+  "title": true,
+  "titleSize": 11,
+  "titleWeight": 500,
+  "titleFont": "Google Sans Flex",
+  "doubleClick": true,
+  "minimizeTo": "special",
+  "blur": true,
+  "icon": true,
+  "iconSize": 16,
+  "icons": {
+    "com.bitwig.BitwigStudio": "/home/caesar/.cache/ii-decor/icons/com.bitwig.BitwigStudio.png",
+    "zash": "/home/caesar/.cache/ii-decor/icons/zash.png",
+    "zen": "/home/caesar/.cache/ii-decor/icons/zen.png"
+  },
+  "perClass": {
+    "zen": {
+      "bar": "rgba(0c1517ff)",
+      "text": "rgb(dbe4e7)"
+    },
+    "zash": {
+      "bar": "rgba(111C1Ff2)",
+      "text": "rgb(dbe4e7)"
+    },
+    "com.bitwig.BitwigStudi": {
+      "bar": "rgba(0c1517d9)",
+      "height": 0
+    },
+    "ii-settings": {
+      "bar": "rgba(0c1517d9)",
+      "height": 0
+    },
+    "zett": {
+      "bar": "rgba(0c1517d9)",
+      "height": 0
+    }
+  },
+  "buttonStyle": "dots",
+  "buttonImages": {},
+  "separator": "rgba(00000000)",
+  "colors": {
+    "bar": "rgba(0c1517d9)",
+    "text": "rgb(dbe4e7)",
+    "close": "rgb(ffb4ab)",
+    "minimize": "rgb(8fd0e2)",
+    "maximize": "rgb(76cd83)"
+  }
+}

@@ -1,0 +1,17 @@
+-- Written by the shell (Palette > Glass). Regenerated on every change.
+hl.window_rule({ name = 'glass-zash', match = { class = '^(zash)$' }, no_blur = false, border_size = 0 })
+hl.window_rule({ name = 'glass-wezterm', match = { class = '^(org\\.wezfurlong\\.wezterm)$' }, no_blur = false, border_size = 0 })
+hl.window_rule({ name = 'glass-kitty', match = { class = '^(kitty)$' }, no_blur = false, border_size = 0 })
+hl.window_rule({ name = 'glass-discord', match = { class = '(?i)^(discord|vesktop|legcord|equibop)$' }, no_blur = false, border_size = 0 })
+hl.window_rule({ name = 'glass-zathura', match = { class = '(?i)^(org\\.pwmt\\.zathura)$' }, no_blur = false, border_size = 0 })
+hl.window_rule({ name = 'glass-zen', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-qutebrowser', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-telegram', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-obsidian', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-code', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-dolphin', match = { class = '(?i)^(org\\.kde\\.dolphin|dolphin)$' }, no_blur = false, border_size = 0, opacity = '0.85 override 0.85 override' })
+hl.window_rule({ name = 'glass-nautilus', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-steam', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-blender', match = { class = '^(__glass_off__)$' }, no_blur = true })
+hl.window_rule({ name = 'glass-bitwig', match = { class = '^(__glass_off__)$' }, no_blur = true })
+

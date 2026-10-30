@@ -1,0 +1,9 @@
+{
+  "name": "Scanlines",
+  "kind": "scanlines",
+  "color": "#000000",
+  "strength": 0.28,
+  "speed": 0.5,
+  "icon": "monitor",
+  "desc": "CRT lines drifting down the window."
+}

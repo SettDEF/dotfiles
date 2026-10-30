@@ -1,0 +1,6 @@
+{
+  "name": "Boss Blind", "kind": "glsl", "shader": "balatro.frag.qsb",
+  "color": "#C81E4A", "strength": 0.34, "speed": 0.7, "fps": 30,
+  "icon": "shield", "desc": "Heavy crimson pressing in slowly.",
+  "defaults": { "c1": "#1A0A18", "c2": "#C81E4A", "p1": 0.30, "p2": 3, "p3": 0.16, "p4": 1.35 }
+}

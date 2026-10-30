@@ -1,0 +1,12 @@
+{
+  "name": "Ripple",
+  "kind": "glsl",
+  "shader": "ripple.frag.qsb",
+  "samples": true,
+  "color": "#4BC292",
+  "strength": 0.16,
+  "speed": 1.0,
+  "fps": 30,
+  "icon": "water_drop",
+  "desc": "Rings spreading from the centre, warping everything they cross."
+}
