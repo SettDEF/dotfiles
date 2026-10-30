@@ -29,20 +29,6 @@ if [ "$HOME" != /home/caesar ]; then
     targets=("$HOME/.scripts"); for d in config/*; do targets+=("$HOME/.config/${d#config/}"); done
     grep -rIlE '/home/caesar\b' "${targets[@]}" 2>/dev/null | while IFS= read -r f; do sed -i -E "s|/home/caesar\b|$HOME|g" "$f"; done
 fi
-# the shell's wallpaper is a file on the laptop these settings came from: one that is not here
-# gave a black desktop, so it falls back to one that is
-ii="$HOME/.config/illogical-impulse/config.json"
-if [ -f "$ii" ] && command -v jq >/dev/null; then
-    wp=$(jq -r '.background.wallpaperPath // empty' "$ii")
-    if [ -n "$wp" ] && [ ! -e "$wp" ]; then
-        fb=$(find "$HOME/Pictures/Wallpapers" -maxdepth 2 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) 2>/dev/null | head -1)
-        if [ -n "$fb" ]; then
-            jq --arg p "$fb" '.background.wallpaperPath = $p | .background.wallpaperSourcePath = $p' "$ii" > "$ii.tmp" && mv "$ii.tmp" "$ii" && echo "wallpaper: $wp is not here, using $fb"
-        else
-            echo "wallpaper: $wp is not here; pick one in the shell's wallpaper picker"
-        fi
-    fi
-fi
 # the shell's wallpaper: one that exists here (else a black desktop): your first picture, or ii's own
 cfg="$HOME/.config/illogical-impulse/config.json"
 if [ -f "$cfg" ] && command -v jq >/dev/null; then
