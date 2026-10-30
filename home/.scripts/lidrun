@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # lidrun — run long tasks that survive lid-close / idle / sleep
 #
 # Each preset wraps its command in `systemd-inhibit` so closing the lid won't
@@ -124,9 +125,9 @@ lidrun presets — keep these running even when the lid is closed:
    9. disk-report     du -sh of common big dirs → log
 
   Backups & sync
-  10. backup-config   rsync ~/.config + ~/.scripts to /mnt/storage
-  11. backup-home     full rsync of $HOME to /mnt/storage/home-mirror
-  12. backup-secure   rsync ~/.secure (API keys etc) to /mnt/storage
+  10. backup-config   rsync ~/.config + ~/.scripts to ${STORAGE}
+  11. backup-home     full rsync of $HOME to ${BACKUP_DIR}/home-mirror
+  12. backup-secure   rsync ~/.secure (API keys etc) to ${STORAGE}
   13. rclone <remote> rclone sync to a named remote
   14. git-pull-all <dir>  git pull every repo under <dir>
 
@@ -197,20 +198,20 @@ case "$cmd" in
     journal-vacuum)_run journal-vac  "Shrink journald"              sudo journalctl --vacuum-size=200M ;;
     trash-empty)   _run trash-empty  "Empty trash"                  bash -c "rm -rf ~/.local/share/Trash/*/* 2>/dev/null; echo done" ;;
     docker-prune)  _run docker-prune "Docker system prune"          docker system prune -af --volumes ;;
-    disk-report)   _run disk-report  "Top disk hogs in HOME"        bash -c "du -sh ~/.cache ~/.local ~/.mozilla ~/.config /mnt/storage ~/Downloads ~/Documents 2>/dev/null | sort -h" ;;
+    disk-report)   _run disk-report  "Top disk hogs in HOME"        bash -c "du -sh ~/.cache ~/.local ~/.mozilla ~/.config ${STORAGE} ~/Downloads ~/Documents 2>/dev/null | sort -h" ;;
 
     # ── backups & sync ───────────────────────────────────────────────────
-    backup-config) _run backup-cfg   "Backup ~/.config to /mnt/storage" \
+    backup-config) _run backup-cfg   "Backup ~/.config to ${STORAGE}" \
                        rsync -aHAXv --delete --exclude='.cache' \
                             "$HOME/.config/" "$HOME/.scripts/" \
-                            /mnt/storage/config-backups/latest/ ;;
-    backup-home)   _run backup-home  "Full HOME mirror to /mnt/storage" \
+                            ${BACKUP_DIR}/config-backups/latest/ ;;
+    backup-home)   _run backup-home  "Full HOME mirror to ${STORAGE}" \
                        rsync -aHAXv --delete \
                             --exclude='.cache' --exclude='.local/share/Trash' \
                             --exclude='node_modules' --exclude='target' \
-                            "$HOME/" /mnt/storage/home-mirror/ ;;
-    backup-secure) _run backup-sec   "Backup ~/.secure to /mnt/storage" \
-                       rsync -aHAXv --delete "$HOME/.secure/" /mnt/storage/secure-backup/ ;;
+                            "$HOME/" ${BACKUP_DIR}/home-mirror/ ;;
+    backup-secure) _run backup-sec   "Backup ~/.secure to ${STORAGE}" \
+                       rsync -aHAXv --delete "$HOME/.secure/" ${BACKUP_DIR}/secure-backup/ ;;
     rclone)
         [[ -z "${1:-}" ]] && { echo "usage: lidrun rclone <remote-name>"; exit 1; }
         _run "rclone-$1" "rclone sync to $1" rclone sync "$HOME" "$1:home-mirror" --progress ;;

@@ -34,7 +34,7 @@ from urllib.parse import urlparse, parse_qs
 PORT = int(os.environ.get("MEDIA_PORT", os.environ.get("YTM_PORT", "8788")))
 BASE = f"http://127.0.0.1:{PORT}"
 USERSCRIPT = os.environ.get("YTM_USERSCRIPT", os.path.expanduser(
-    "/mnt/storage/dev/projects/tela-zen/userscripts/media-ytm.user.js"))
+    os.path.expandvars("${PROJECTS_DIR}/tela-zen/userscripts/media-ytm.user.js")))
 COMMANDS = {"toggle", "play", "pause", "next", "prev", "open", "volume", "mode", "seek"}
 
 
@@ -637,7 +637,7 @@ def chess_players(names, get):
 def chess_review(path):
     """The chess app's helper reviews one game: its JSON review, or None."""
     import json as _json, subprocess
-    helper = os.environ.get("ARCADE_CHESS_BIN") or shutil.which("arcade-chess") or "/mnt/storage/dev-cache/targets/release/arcade-chess"
+    helper = os.environ.get("ARCADE_CHESS_BIN") or shutil.which("arcade-chess") or os.path.expandvars("${DEV_CACHE}/targets/release/arcade-chess")
     req = "\n".join([_json.dumps({"id": 1, "cmd": "load", "path": path}), _json.dumps({"id": 2, "cmd": "review"}), _json.dumps({"id": 3, "cmd": "quit"})]) + "\n"
     try:
         out = subprocess.run([helper], input=req, capture_output=True, text=True, timeout=300).stdout

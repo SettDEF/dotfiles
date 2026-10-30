@@ -100,7 +100,7 @@ end
 
 -- Window title bars (ii-decor). The script skips if already loaded and refuses
 -- a build that does not match the running Hyprland.
-hl.exec_cmd("/mnt/storage/dev/projects/ii-decor/scripts/autoload.sh")
+hl.exec_cmd("~/.config/hypr/hyprland/scripts/ii-decor-autoload.sh")
 
 -- ── Super-tap guard ─────────────────────────────────────────────────────
 -- A Super RELEASE opens the launcher (search releaseToggle) only after a bare

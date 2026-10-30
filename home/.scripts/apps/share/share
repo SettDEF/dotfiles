@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # share: what is shared (files, links, text, the clipboard) → matching apps and targets → the shell's share panel
 # usage: share FILE|URL|TEXT...   share --clip   echo text | share   share --json (print, no panel)
 #        share --new "Upload" "rsync {} nuke:/srv/" files   (a new target in one line)
@@ -45,7 +46,7 @@ find_path() {
         pid=$(pgrep -P "$pid" | tail -n1)
     done
     local hit
-    hit=$(timeout 1.5 fd --hidden --no-ignore-vcs --full-path --max-results 1 --exclude .git --exclude node_modules --exclude target "/${p#./}$" /mnt/storage/dev/projects "$HOME/.config" "$HOME/.scripts" 2>/dev/null | head -n1)
+    hit=$(timeout 1.5 fd --hidden --no-ignore-vcs --full-path --max-results 1 --exclude .git --exclude node_modules --exclude target "/${p#./}$" ${PROJECTS_DIR} "$HOME/.config" "$HOME/.scripts" 2>/dev/null | head -n1)
     [[ -n "$hit" ]] && { echo "$hit"; return 0; }
     return 1
 }

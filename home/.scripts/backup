@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# backup — full system-config snapshot to /mnt/storage/system-backups/<ts>/
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
+# backup — full system-config snapshot to ${BACKUP_DIR}/system-backups/<ts>/
 #
 # What it captures
 #   etc/      — curated /etc files (pacman, fstab, systemd units, NM wifi,
@@ -15,7 +16,7 @@
 #               nvim, claude sessions, fonts, icons, KDE state, custom .desktop
 #               entries). Excludes Steam game installs / umu / uv / baloo
 #               (reinstallable). Skip with --no-apps.
-#   comfy/    — ComfyUI on /mnt/storage (outside $HOME): launch script (ROCm/GPU
+#   comfy/    — ComfyUI on ${STORAGE} (outside $HOME): launch script (ROCm/GPU
 #               config) + hand-written custom nodes + saved workflow JSONs.
 #               Models + venv excluded (re-downloadable). Skip with --no-comfy.
 #   packages/ — pacman explicit, AUR/foreign, flatpak, enabled systemd units
@@ -23,7 +24,7 @@
 #   RESTORE.md — paste-ready commands to restore
 #
 # Storage strategy
-#   New snapshot dir: /mnt/storage/system-backups/<YYYYMMDD-HHMMSS>/
+#   New snapshot dir: ${BACKUP_DIR}/system-backups/<YYYYMMDD-HHMMSS>/
 #   rsync --link-dest=../latest → unchanged files are hardlinked, so each new
 #   snapshot only costs the size of the diff. Old snapshots stay browsable
 #   and self-contained.
@@ -49,7 +50,7 @@ set -uo pipefail
 
 # ── config ────────────────────────────────────────────────────────────────
 # Destination resolution order: --to <path>  >  $BACKUP_ROOT env  >  default.
-DEFAULT_DEST_ROOT="/mnt/storage/system-backups"
+DEFAULT_DEST_ROOT="${BACKUP_DIR}/system-backups"
 DEST_ROOT="${BACKUP_ROOT:-$DEFAULT_DEST_ROOT}"
 MIN_FREE_GB=2
 KEEP_DEFAULT=10                 # rotate default
@@ -162,11 +163,11 @@ APPS_EXCLUDES=(
     --exclude='*/logs'   --exclude='*/Crashpad'
 )
 
-# ComfyUI lives on /mnt/storage (outside $HOME), so the home/apps sections miss
+# ComfyUI lives on ${STORAGE} (outside $HOME), so the home/apps sections miss
 # it entirely. Capture only the irreplaceable hand-made bits: the launch script
 # (ROCm/GPU config) and our custom nodes. Models + venv are re-downloadable and
 # huge → deliberately excluded. Workflow JSONs (from ~/Downloads) added below.
-COMFY_ROOT="/mnt/storage/usr/mooon/.local/share/ComfyUI"
+COMFY_ROOT="${USERDATA}/.local/share/ComfyUI"
 COMFY_PATHS=(
     start.sh
     start.sh.bak

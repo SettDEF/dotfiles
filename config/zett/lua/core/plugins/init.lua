@@ -3,7 +3,7 @@
 -- the theme: tinct.nvim, the same one nvim uses. It follows the desktop's colours live
 -- (the palette tinct writes for the wallpaper; a change shows without a restart)
 zett.plug("tinct.nvim", {
-  dir = "/mnt/storage/dev/projects/tinct/tinct.nvim",
+  dir = (os.getenv("PROJECTS_DIR") or (os.getenv("HOME") .. "/dev/projects")) .. "/tinct/tinct.nvim",
   -- as nvim's (lazyload/plugins/theme.lua): the terminal's own background shows through
   opts = {
     transparent = { bg = true, statusline = true },

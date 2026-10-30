@@ -40,9 +40,9 @@ def send_notification(title, message, replace=False, progress=-1):
 
 # Mapped folders - customizable local targets
 FOLDERS = {
-    "tooown": "/mnt/storage/usr/mooon/vault/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys",
-    "rvc": "/mnt/storage/usr/mooon/vault/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys",
-    "voices": "/mnt/storage/usr/mooon/vault/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys",
+    "tooown": os.path.expandvars("${VAULT_DIR}/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys"),
+    "rvc": os.path.expandvars("${VAULT_DIR}/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys"),
+    "voices": os.path.expandvars("${VAULT_DIR}/REPOSITORY/audio/Collections/TOoOwn: The First/Vocals/Storys"),
     "downloads": os.path.expanduser("~/Downloads"),
     "music": os.path.expanduser("~/Music"),
     "videos": os.path.expanduser("~/Videos"),

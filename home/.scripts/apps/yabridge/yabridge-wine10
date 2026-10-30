@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # yabridge-wine10: yabridge that works with Wine 9.22+ (mouse offset fix): builds the new-wine10-embedding branch with our patch, installs it to ~/.local/share/yabridge, re-syncs.
 # Usage: yabridge-wine10 [--no-pull]   (Bitwig closed first). Undo: remove yabridge_home from ~/.config/yabridgectl/config.toml, yabridgectl sync.
 #
@@ -7,7 +8,7 @@
 # (local-yabridge-first.patch) makes yabridge look in ~/.local/share/yabridge before PATH, else the
 # distro package's /usr/bin/yabridge-host.exe (old) wins over this build.
 set -eu
-SRC=${YABRIDGE_SRC:-/mnt/storage/dev/src/yabridge}
+SRC=${YABRIDGE_SRC:-${STORAGE}/dev/src/yabridge}
 HERE=$(dirname "$(readlink -f "$0")")
 DEST=${XDG_DATA_HOME:-$HOME/.local/share}/yabridge
 CONF=$HOME/.config/yabridgectl/config.toml

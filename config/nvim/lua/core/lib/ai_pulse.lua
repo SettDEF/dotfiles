@@ -1,5 +1,5 @@
 -- Backward-compat shim. Redirects historic requires to shimmer.nvim
--- (repo: /mnt/storage/dev/projects/shimmer.nvim).
+-- (repo: $PROJECTS_DIR/shimmer.nvim).
 local ok, pulse = pcall(require, "shimmer")
 if not ok then
     return { is_pulsing = function() return false end,

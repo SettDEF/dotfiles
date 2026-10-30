@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # craft-sync - keep the ArtCraft "Crafting Apps" (storytold/*craft on GitHub)
 # packaged in the local pacman repo, so `pacman -Syu` installs and updates them
 # like every other package.
@@ -14,7 +15,7 @@
 # For each app this writes a PKGBUILD under $CRAFT_PKGS/<app>-bin when the
 # source (release or commit), the format or the packaging revision changed, and
 # hands it to publish-local, which builds it and adds it to the [wuchains] repo.
-# The program goes on /mnt/storage/Applications/Crafting (the root partition is
+# The program goes on ${STORAGE}/Applications/Crafting (the root partition is
 # nearly full); only launchers, menu entries, icons and app metadata go under /usr.
 #
 # git builds: sources in $CRAFT_SRC/<app>, cargo output in $CRAFT_TARGET/<app>
@@ -52,13 +53,13 @@ APPS+=(artcraft)
 # Release files named differently from their repo.
 upname() { case $1 in craft-launcher) echo artcraft-launcher ;; *) echo "$1" ;; esac; }
 OWNER=storytold
-CRAFT_PKGS="${CRAFT_PKGS:-/mnt/storage/dev/packages}"
-CRAFT_SRC="${CRAFT_SRC:-/mnt/storage/dev-cache/craft-src}"
-CRAFT_TARGET="${CRAFT_TARGET:-/mnt/storage/dev-cache/craft-target}"
-CRAFT_LOGS="${CRAFT_LOGS:-/mnt/storage/dev-cache/craft-logs}"
+CRAFT_PKGS="${CRAFT_PKGS:-${STORAGE}/dev/packages}"
+CRAFT_SRC="${CRAFT_SRC:-${DEV_CACHE}/craft-src}"
+CRAFT_TARGET="${CRAFT_TARGET:-${DEV_CACHE}/craft-target}"
+CRAFT_LOGS="${CRAFT_LOGS:-${DEV_CACHE}/craft-logs}"
 CRAFT_MEM_MAX="${CRAFT_MEM_MAX:-12G}"
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/craft-sync.conf"
-DEST=/mnt/storage/Applications/Crafting
+DEST=${STORAGE}/Applications/Crafting
 # Packaging revision, raised when the PKGBUILD changes without a new upstream
 # release (2: AppImageLauncher bypass; 3: format choice).
 REL=3
@@ -225,7 +226,7 @@ for a in "${APPS[@]}"; do
         commit=$(git ls-remote "https://github.com/$OWNER/$a.git" "refs/heads/$branch" | cut -f1)
         [ -n "$commit" ] || { echo "  $a: no branch '$branch' (craft-sync --branches $a)" >&2; continue; }
         if [ "$hfmt" = git ] && [ "$(pkgvar _commit "$a")" = "$commit" ] && [ "${hrel%%.*}" = "$REL" ] \
-            && ls /mnt/storage/repo/"$a"-bin-"$have"-"$hrel"-*.pkg.tar.zst >/dev/null 2>&1; then
+            && ls ${PKG_REPO_DIR}/"$a"-bin-"$have"-"$hrel"-*.pkg.tar.zst >/dev/null 2>&1; then
             echo "  $a $branch@${commit:0:7}: up to date"; continue
         fi
         echo "── $a: building $branch@${commit:0:7} (log: $CRAFT_LOGS/$a.log)"
@@ -252,7 +253,7 @@ for a in "${APPS[@]}"; do
         sha=$(curl -fsSL "$sums" | awk -v n="$asset" '$2 == n {print $1}')
         [ -n "$sha" ] || { echo "  $a $ver: $asset not in SHA256SUMS.txt - skipped" >&2; continue; }
         if [ "$have" = "$ver" ] && [ "${hfmt:-appimage}" = "$fmt" ] && [ "${hrel%%.*}" = "$REL" ] \
-            && ls /mnt/storage/repo/"$a"-bin-"$ver"-"$hrel"-*.pkg.tar.zst >/dev/null 2>&1; then
+            && ls ${PKG_REPO_DIR}/"$a"-bin-"$ver"-"$hrel"-*.pkg.tar.zst >/dev/null 2>&1; then
             echo "  $a $ver ($fmt): up to date"; continue
         fi
     fi

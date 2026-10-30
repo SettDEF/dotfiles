@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # texfetch — mirror free (CC0) 3D assets: PBR textures, HDRIs and models.
 #
 # Sites (official APIs only, so a redesign does not break it):
@@ -16,7 +17,7 @@
 set -euo pipefail
 
 SITES=(ambientcg polyhaven sketchfab)
-DEST=/mnt/storage/Assets/3D
+DEST=${ASSETS_DIR}/3D
 RES=2k            # 1k 2k 4k 8k all
 FORMAT=jpg        # jpg png (textures)
 TYPES=all         # textures hdris models all

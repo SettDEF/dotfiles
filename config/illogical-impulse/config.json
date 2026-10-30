@@ -621,7 +621,7 @@
     "updateInterval": 3000
   },
   "screenRecord": {
-    "savePath": "/mnt/storage/Videos/Recordings"
+    "savePath": ""
   },
   "screenSnip": {
     "includeCursor": false,

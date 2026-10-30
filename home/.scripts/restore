@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # restore — restore a snapshot produced by ~/.scripts/backup.
 #
 # (Named `restore` because `~/.scripts/install/` already exists as a dir of
@@ -13,7 +14,7 @@
 #   restore --from <ts> <section>   — restore section from snapshot <ts>
 #   restore --from latest all       — restore everything
 #   restore --src <path> …          — read snapshots from <path> instead of
-#                                     /mnt/storage/system-backups
+#                                     ${BACKUP_DIR}/system-backups
 #                                     (also honours $BACKUP_ROOT env var)
 #   restore bootstrap               — fresh machine: packages → etc → configs
 #   restore list                    — list snapshots (delegates to `backup list`)
@@ -34,9 +35,9 @@
 #   --dry-run     — show what would change, write nothing
 
 set -uo pipefail
-DEFAULT_DEST_ROOT="/mnt/storage/system-backups"
+DEFAULT_DEST_ROOT="${BACKUP_DIR}/system-backups"
 DEST_ROOT="${BACKUP_ROOT:-$DEFAULT_DEST_ROOT}"
-# Persist undo on /mnt/storage so a reboot can't wipe it. Fall back to /tmp
+# Persist undo on ${STORAGE} so a reboot can't wipe it. Fall back to /tmp
 # only if storage isn't mounted (handles "restore on a freshly-installed
 # system that hasn't mounted the drive yet" case).
 UNDO_TS="$(date +%Y%m%d-%H%M%S)"

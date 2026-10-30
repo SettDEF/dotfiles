@@ -117,7 +117,7 @@ add-zsh-hook precmd __zsh_colors_refresh
 # project. When cwd is inside one, the prompt shows a project pill + a path
 # relative to the project instead of the full path.
 typeset -ga PROMPT_PROJECT_ROOTS=(
-    "/mnt/storage/dev/projects"
+    "${PROJECTS_DIR:-$HOME/dev/projects}"
     "$HOME/workspace"
 )
 

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
+. "$HOME/.config/paths.env" 2>/dev/null   # this machine's folders (STORAGE, PROJECTS_DIR, …)
 # zett-parity-dotos: zett's parity tables (docs/parity, from scripts/parity.sh) as a Dotos page,
 # with one history row per day, so the progress shows in Dotos without opening the repo.
 #
 #   zett-parity-dotos          after scripts/parity.sh: writes ~/.local/share/dotos/pages/zett-parity.md
-#   ZETT_REPO=…                the zett checkout (default /mnt/storage/dev/projects/zett)
+#   ZETT_REPO=…                the zett checkout (default ${PROJECTS_DIR}/zett)
 set -euo pipefail
 
-repo=${ZETT_REPO:-/mnt/storage/dev/projects/zett}
+repo=${ZETT_REPO:-${PROJECTS_DIR}/zett}
 p=$repo/docs/parity
 page=$HOME/.local/share/dotos/pages/zett-parity.md
 hist=$HOME/.local/state/zett/parity-history.tsv
