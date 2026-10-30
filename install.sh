@@ -23,6 +23,17 @@ put home/.scripts "$HOME/.scripts"
 if [ "$HOME" != /home/caesar ]; then
     grep -rIl /home/caesar "$HOME/.config" "$HOME/.scripts" 2>/dev/null | while IFS= read -r f; do sed -i "s|/home/caesar|$HOME|g" "$f"; done
 fi
+# the shell's wallpaper: one that exists here (else a black desktop): your first picture, or ii's own
+cfg="$HOME/.config/illogical-impulse/config.json"
+if [ -f "$cfg" ] && command -v jq >/dev/null; then
+    wp=$(jq -r '.background.wallpaperPath // ""' "$cfg")
+    if [ -z "$wp" ] || [ ! -f "$wp" ]; then
+        wp=$(find "$HOME/Pictures/Wallpapers" "$HOME/Pictures" -maxdepth 2 -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | head -1)
+        [ -n "$wp" ] || wp="$HOME/.config/quickshell/ii/assets/images/default_wallpaper.png"
+        jq --arg w "$wp" '.background.wallpaperPath = $w | .background.wallpaperSourcePath = "" | .background.thumbnailPath = "" | .background.crop.perFile = {}' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
+        echo "wallpaper: $wp"
+    fi
+fi
 # ~/.zshrc loads the real one in ~/.config/zsh
 if ! grep -qs 'config/zsh/.zshrc' "$HOME/.zshrc"; then
     [ -e "$HOME/.zshrc" ] && mv "$HOME/.zshrc" "$HOME/.zshrc.bak-$stamp"

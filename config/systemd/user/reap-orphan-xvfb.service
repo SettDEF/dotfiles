@@ -1,7 +1,0 @@
-[Unit]
-Description=Reap orphaned Xvfb instances left behind by killed test harnesses
-
-[Service]
-Type=oneshot
-ExecStart=%h/.scripts/reap-orphan-xvfb
-Nice=10

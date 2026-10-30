@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch for Discord updates (new app-* folders)
-
-[Path]
-PathModified=%h/.config/discord
-Unit=bd-reinject.service
-
-[Install]
-WantedBy=default.target
