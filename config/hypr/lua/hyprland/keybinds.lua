@@ -23,7 +23,7 @@ hl.bind("SUPER + V", hl.dsp.global("quickshell:overviewClipboardToggle"), { desc
 hl.bind("SUPER + Period", hl.dsp.global("quickshell:overviewEmojiToggle"), { description = "Emoji >> clipboard" })
 hl.bind("SUPER + A", hl.dsp.global("quickshell:sidebarLeftToggle"))
 hl.bind("XF86Launch3", hl.dsp.global("quickshell:sidebarRightToggle"))
-hl.bind("SUPER + ALT + A", hl.dsp.global("quickshell:sidebarLeftToggleDetach"))
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + ALT + A", hl.dsp.global("quickshell:sidebarLeftToggleDetach"))
 hl.bind("SUPER + B", hl.dsp.global("quickshell:sidebarLeftToggle"))
 hl.bind("SUPER + O", hl.dsp.global("quickshell:sidebarLeftToggle"))
 hl.bind("SUPER + N", hl.dsp.global("quickshell:sidebarRightToggle"), { description = "Toggle right sidebar" })
@@ -43,11 +43,11 @@ hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("qs -c ii ipc call brightness d
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+ -l 1.5"), { locked = true, repeating = true })
 hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"), { locked = true, repeating = true })
 hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"), { locked = true })
-hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"), { locked = true, description = "Toggle mute" })
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + SHIFT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SINK@ toggle"), { locked = true, description = "Toggle mute" })
 hl.bind("ALT + XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })
 hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })
 hl.bind("F20", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true })
-hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true, description = "Toggle mic" })
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_SOURCE@ toggle"), { locked = true, description = "Toggle mic" })
 hl.bind("CTRL + SUPER + T", hl.dsp.global("quickshell:wallpaperSelectorToggle"), { description = "Toggle wallpaper selector" })
 hl.bind("CTRL + SUPER + ALT + T", hl.dsp.global("quickshell:wallpaperSelectorRandom"), { description = "Select random wallpaper" })
 hl.bind("CTRL + SUPER + SHIFT + T", hl.dsp.global("quickshell:skwdWallToggle"), { description = "Toggle Wallpaper Hub" })
@@ -59,10 +59,10 @@ hl.bind("SUPER + Period", hl.dsp.exec_cmd("qs -c ii ipc call TEST_ALIVE || pkill
 hl.bind("SUPER + SHIFT + S", hl.dsp.global("quickshell:regionScreenshot"))
 hl.bind("SUPER + SHIFT + U", hl.dsp.global("quickshell:shareClipboard"))  -- share what is on the clipboard
 hl.bind("SUPER + SHIFT + Y", hl.dsp.global("quickshell:nowPlayingToggle"))  -- YouTube Music now playing at the right edge
-hl.bind("SUPER + SHIFT + I", hl.dsp.global("quickshell:claudeToggle"))  -- Claude (claude-ui panel) at the right edge
-hl.bind("SUPER + minus", hl.dsp.layout("pad -40"))  -- center layout: less room around the floating master
-hl.bind("SUPER + plus", hl.dsp.layout("pad +40"))   -- center layout: more room around it
-hl.bind("SUPER + equal", hl.dsp.layout("pad +40"))  -- the same on keyboards where + is shift+=
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + SHIFT + I", hl.dsp.global("quickshell:claudeToggle"))  -- Claude (claude-ui panel) at the right edge
+-- moved to the Super+Alt+Z mode (custom/keybinds.lua): hl.bind("SUPER + minus", hl.dsp.layout("pad -40"))  -- center layout: less room around the floating master
+-- moved to the Super+Alt+Z mode (custom/keybinds.lua): hl.bind("SUPER + plus", hl.dsp.layout("pad +40"))   -- center layout: more room around it
+-- moved to the Super+Alt+Z mode (custom/keybinds.lua): hl.bind("SUPER + equal", hl.dsp.layout("pad +40"))  -- the same on keyboards where + is shift+=
 hl.bind("SUPER + Y", hl.dsp.layout("next"))         -- next window layout (tile, center, fair, spiral, max …)
 hl.bind("SUPER + CTRL + Y", hl.dsp.layout("prev"))  -- the previous one
 hl.bind("SUPER + SHIFT + S", hl.dsp.exec_cmd("qs -c ii ipc call TEST_ALIVE || pidof slurp || hyprshot --freeze --clipboard-only --mode region --silent"))
@@ -90,9 +90,9 @@ hl.bind("SUPER + Left", hl.dsp.focus({ direction = "l" }))
 hl.bind("SUPER + Right", hl.dsp.focus({ direction = "r" }))
 hl.bind("SUPER + Up", hl.dsp.focus({ direction = "u" }))
 hl.bind("SUPER + Down", hl.dsp.focus({ direction = "d" }))
-hl.bind("SUPER + BracketLeft", hl.dsp.focus({ direction = "l" }))
-hl.bind("SUPER + BracketRight", hl.dsp.focus({ direction = "r" }))
-hl.bind("SUPER + Space", hl.dsp.window.cycle_next("visible"))
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + BracketLeft", hl.dsp.focus({ direction = "l" }))
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + BracketRight", hl.dsp.focus({ direction = "r" }))
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + Space", hl.dsp.window.cycle_next("visible"))
 hl.bind("SUPER + Space", hl.dsp.window.bring_to_top())
 hl.bind("SUPER + SHIFT + Space", hl.dsp.window.cycle_next("prev visible"))
 hl.bind("SUPER + SHIFT + Space", hl.dsp.window.bring_to_top())
@@ -189,13 +189,13 @@ hl.bind("SUPER + SHIFT + L", hl.dsp.global("quickshell:suspendStart"), { descrip
 hl.bind("switch:on:Lid Switch", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/lid.sh close"), { locked = true })
 hl.bind("switch:off:Lid Switch", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/lid.sh open"), { locked = true })
 hl.bind("CTRL + SHIFT + ALT + SUPER + Delete", hl.dsp.exec_cmd("systemctl poweroff || loginctl poweroff"), { description = "Shutdown" })
-hl.bind("SUPER + Minus", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/zoom.sh decrease 0.3"), { repeating = true })
-hl.bind("SUPER + Equal", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/zoom.sh increase 0.3"), { repeating = true })
+-- moved to the Super+Alt+Z mode (custom/keybinds.lua): hl.bind("SUPER + Minus", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/zoom.sh decrease 0.3"), { repeating = true })
+-- moved to the Super+Alt+Z mode (custom/keybinds.lua): hl.bind("SUPER + Equal", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/zoom.sh increase 0.3"), { repeating = true })
 hl.bind("SUPER + code:82", hl.dsp.exec_cmd("qs -c ii ipc call zoom zoomOut"), { repeating = true })
 hl.bind("SUPER + code:86", hl.dsp.exec_cmd("qs -c ii ipc call zoom zoomIn"), { repeating = true })
 hl.bind("SUPER + code:82", hl.dsp.exec_cmd("qs -c ii ipc call TEST_ALIVE || ~/.config/hypr/hyprland/scripts/zoom.sh decrease 0.1"), { repeating = true })
 hl.bind("SUPER + code:86", hl.dsp.exec_cmd("qs -c ii ipc call TEST_ALIVE || ~/.config/hypr/hyprland/scripts/zoom.sh increase 0.1"), { repeating = true })
-hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("playerctl next || playerctl position `bc <<< \"100 * $(playerctl metadata mpris:length) / 1000000 / 100\"`"), { locked = true })
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + SHIFT + N", hl.dsp.exec_cmd("playerctl next || playerctl position `bc <<< \"100 * $(playerctl metadata mpris:length) / 1000000 / 100\"`"), { locked = true })
 hl.bind("XF86AudioNext", hl.dsp.exec_cmd("playerctl next || playerctl position `bc <<< \"100 * $(playerctl metadata mpris:length) / 1000000 / 100\"`"), { locked = true })
 hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("playerctl previous"), { locked = true })
 hl.bind("SUPER + SHIFT + ALT + mouse:275", hl.dsp.exec_cmd("playerctl previous"))
@@ -213,8 +213,8 @@ hl.bind("SUPER + C", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/launch_fir
 hl.bind("CTRL + SUPER + SHIFT + ALT + W", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/launch_first_available.sh \"wps\" \"onlyoffice-desktopeditors\" \"libreoffice\""))
 hl.bind("SUPER + X", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/launch_first_available.sh \"kate\" \"gnome-text-editor\" \"emacs\""))
 hl.bind("CTRL + SUPER + V", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/launch_first_available.sh \"pavucontrol-qt\" \"pavucontrol\""))
-hl.bind("SUPER + I", hl.dsp.exec_cmd("XDG_CURRENT_DESKTOP=gnome ~/.config/hypr/hyprland/scripts/launch_first_available.sh \"qs -p ~/.config/quickshell/ii/settings.qml\" \"systemsettings\" \"gnome-control-center\" \"better-control\""))
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + I", hl.dsp.exec_cmd("XDG_CURRENT_DESKTOP=gnome ~/.config/hypr/hyprland/scripts/launch_first_available.sh \"qs -p ~/.config/quickshell/ii/settings.qml\" \"systemsettings\" \"gnome-control-center\" \"better-control\""))
 hl.bind("CTRL + SHIFT + Escape", hl.dsp.exec_cmd("~/.config/hypr/hyprland/scripts/launch_first_available.sh \"gnome-system-monitor\" \"plasma-systemmonitor --page-name Processes\" \"command -v btop && kitty -1 fish -c btop\""))
 hl.bind("CTRL + SUPER + Backslash", hl.dsp.window.resize({ x = 640, y = 480, relative = false }))
 hl.bind("SUPER + CTRL + SHIFT + N", hl.dsp.exec_cmd("~/.scripts/apps/hdb630/noisewatch.sh mark \"hotkey\" && notify-send -a noisewatch \"Noise captured\" \"$(~/.scripts/apps/hdb630/noisewatch.sh report | head -3 | tail -1)\""))
-hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("qs -c ii ipc call region snap"))
+-- duplicate (custom/keybinds.lua wins): hl.bind("SUPER + SHIFT + D", hl.dsp.exec_cmd("qs -c ii ipc call region snap"))

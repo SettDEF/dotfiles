@@ -3,7 +3,7 @@
 
 -- ── from hyprland/execs.conf ──────────────────────────────
 autostart("start_geoclue_a", "~/.config/hypr/hyprland/scripts/start_geoclue_agent.sh", true)
-autostart("start-quickshel", "/home/caesar/.config/hypr/hyprland/scripts/start-quickshell.sh ii", true)
+autostart("start-quickshel", "~/.config/hypr/hyprland/scripts/start-quickshell.sh ii", true)
 autostart("__restore_video", "~/.config/hypr/custom/scripts/__restore_video_wallpaper.sh", true)
 autostart("gnome-keyring-d", "gnome-keyring-daemon --start --components=secrets", true)
 autostart("hypridle", "hypridle", true)
