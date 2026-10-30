@@ -11,3 +11,6 @@ zett.opt.tabs = true
 
 -- signs (git, diagnostics) in their own column when there are any, as nvim's default
 vim.o.signcolumn = "auto"
+
+-- yank, delete and put go through the system clipboard (wl-copy / wl-paste), as other programs see it
+vim.o.clipboard = "unnamedplus"
