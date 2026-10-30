@@ -10,6 +10,7 @@ pkgs=$(grep -v '^#' packages.txt | tr -s ' \n' '\n' | grep . | while read -r p; 
 
 # zplug, which ~/.config/zsh/.zshrc loads from ~/.zplug
 [ -d "$HOME/.zplug" ] || git clone -q --depth 1 https://github.com/zplug/zplug "$HOME/.zplug" || echo "zplug: could not clone"
+command -v zsh >/dev/null && zsh -c 'source ~/.zplug/init.zsh; zplug "zsh-users/zsh-syntax-highlighting"; zplug "zsh-users/zsh-autosuggestions"; zplug check || zplug install' </dev/null >/dev/null 2>&1 || echo "zplug: plugins not installed (zplug install)"
 
 put() {   # put SRC DEST
     if [ -e "$2" ] && ! diff -rq "$1" "$2" >/dev/null 2>&1; then mv "$2" "$2.bak-$stamp"; echo "kept $2 as $2.bak-$stamp"; fi
