@@ -47,6 +47,19 @@ export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 export MALLOC_TRIM_THRESHOLD_="${MALLOC_TRIM_THRESHOLD_:-131072}"
 
 
+# A GPU whose OpenGL driver has no window format with alpha (Intel Haswell and
+# older, Mesa crocus) draws every see-through part of the shell black: the
+# popups' shadow margins, rounded corners. Mesa's software OpenGL (llvmpipe) has
+# them and still runs the shell's shaders; it costs CPU only while something
+# animates (a start menu open: ~40 % of one core on an i3-4000M, idle: 0). Apps
+# started from the shell go through Hyprland's exec, so they keep the GPU.
+if [ -z "${LIBGL_ALWAYS_SOFTWARE:-}" ] && command -v python3 >/dev/null 2>&1 \
+    && ! python3 -I "$HERE/egl-has-alpha.py" 2>/dev/null \
+    && LIBGL_ALWAYS_SOFTWARE=1 python3 -I "$HERE/egl-has-alpha.py" 2>/dev/null; then
+    echo "start-quickshell: this GPU cannot draw transparent windows; using llvmpipe" >&2
+    export LIBGL_ALWAYS_SOFTWARE=1
+fi
+
 # Normally the first attempt wins now that the environment is correct. The
 # retries only cover a socket that exists but is still refusing connections;
 # without them a single unlucky start would leave the session with no shell.
