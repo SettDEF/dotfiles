@@ -6,3 +6,5 @@ ffmpeg mpv yt-dlp imagemagick tesseract playerctl alsa-utils pavucontrol cava cm
 wl-clipboard cliphist wtype ydotool grim slurp hyprpicker hyprshot hyprlock hypridle
 xclip xsel xdg-utils xorg-xwininfo xorg-xprop xorg-xrandr xorg-xdpyinfo wmctrl
 libnotify zenity fuzzel kitty zathura zathura-pdf-mupdf translate-shell github-cli pacman-contrib
+# fonts: zash's cell font (MonaspiceNe, with the prompt's icons), and every script and emoji (CJK, Arabic, Hebrew …)
+otf-monaspace-nerd ttf-jetbrains-mono-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji
