@@ -9,10 +9,8 @@ hl.config({
         col = { active_border = "rgba(00000000)" },
     },
     input = {
-        scroll_factor = 1.5,
         touchpad = {
             natural_scroll = true,
-            scroll_factor = 1.5,
         },
         -- the Z13's pen and touch belong to its own screen, not spread over
         -- the external monitor too
@@ -23,6 +21,9 @@ hl.config({
 
 hl.device({
     name = "asustek-computer-inc.-gz302ea-keyboard-touchpad",
+    -- the Z13's touchpad scrolls faster; only this device: as input:scroll_factor (and touchpad's)
+    -- it went to every machine these dotfiles install on, and doubled a small touchpad's scrolling
+    scroll_factor = 1.5,
     accel_profile = "adaptive",
     sensitivity = 0.000,
     natural_scroll = true,
