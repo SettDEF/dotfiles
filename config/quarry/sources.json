@@ -1,9 +1,0 @@
-{
-  "sources": {},
-  "blend": "round-robin",
-  "seed": 0,
-  "thumb_budget_mb": 10000,
-  "media_budget_mb": 0,
-  "http_budget_mb": 0,
-  "show_adult": true
-}
