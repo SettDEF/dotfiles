@@ -23,3 +23,6 @@ hl.env("FILMCRAFT_DATA_DIR", (P.VIDEOS_DIR or (os.getenv("HOME") .. "/Videos")) 
 hl.env("PHOTOCRAFT_CONTROL_PORT", "7878")
 hl.env("PHOTOCRAFT_CONTROL_TOKEN_FILE", os.getenv("HOME") .. "/.config/photocraft-brushset/token")
 hl.env("PHOTOCRAFT_AUTOMATION_READ_ROOT", os.getenv("HOME") .. "/.cache/photocraft-brushset")
+-- quarry, the wallpaper hub's backend (Reddit, wallhaven …): the shell reaches quarryd only when
+-- QUARRY_SOCK names its socket; quarryd's own default (systemd --user quarryd.service)
+hl.env("QUARRY_SOCK", (os.getenv("XDG_RUNTIME_DIR") or ("/run/user/" .. (os.getenv("UID") or "1000"))) .. "/quarry/sock")

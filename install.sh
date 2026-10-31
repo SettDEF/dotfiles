@@ -29,6 +29,9 @@ if [ "$HOME" != /home/caesar ]; then
     targets=("$HOME/.scripts"); for d in config/*; do targets+=("$HOME/.config/${d#config/}"); done
     grep -rIlE '/home/caesar\b' "${targets[@]}" 2>/dev/null | while IFS= read -r f; do sed -i -E "s|/home/caesar\b|$HOME|g" "$f"; done
 fi
+# @UID@ (a conf cannot read $XDG_RUNTIME_DIR, e.g. QUARRY_SOCK in hypr/custom/env.conf): this user's id
+f="$HOME/.config/hypr/custom/env.conf"
+[ -f "$f" ] && sed -i "s|@UID@|$(id -u)|g" "$f"
 # the shell's wallpaper: one that exists here (else a black desktop): your first picture, or ii's own
 cfg="$HOME/.config/illogical-impulse/config.json"
 if [ -f "$cfg" ] && command -v jq >/dev/null; then
