@@ -17,6 +17,9 @@ end
 
 
 -- ── from custom/env.conf ──────────────────────────────
+-- cursor theme and size, filled in by install.sh (one cursor for compositor, X11, GTK and Qt)
+hl.env("XCURSOR_THEME", "@CURSOR@")
+hl.env("XCURSOR_SIZE", "@CURSOR_SIZE@")
 hl.env("MOZ_ENABLE_WAYLAND", "1")
 hl.env("GDK_SCALE", "1")
 hl.env("FILMCRAFT_DATA_DIR", (P.VIDEOS_DIR or (os.getenv("HOME") .. "/Videos")) .. "/FilmCraft")

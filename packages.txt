@@ -8,3 +8,5 @@ xclip xsel xdg-utils xorg-xwininfo xorg-xprop xorg-xrandr xorg-xdpyinfo wmctrl
 libnotify zenity fuzzel kitty zathura zathura-pdf-mupdf translate-shell github-cli pacman-contrib
 # fonts: zash's cell font (MonaspiceNe, with the prompt's icons), and every script and emoji (CJK, Arabic, Hebrew …)
 otf-monaspace-nerd ttf-jetbrains-mono-nerd noto-fonts noto-fonts-cjk noto-fonts-emoji
+# the cursor the GTK settings name (Oxygen_White), and the icons used when Reversal (GitHub, see install.sh) cannot be fetched
+oxygen-cursors papirus-icon-theme
